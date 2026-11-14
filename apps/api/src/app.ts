@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/error-handler.js';
 import { notFoundHandler } from './middleware/not-found.js';
 import { verifyRequestOrigin } from './middleware/verify-origin.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { cartRouter } from './modules/cart/cart.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import { categoriesRouter, productsRouter } from './modules/products/products.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
@@ -33,6 +34,7 @@ export function createApp(): Express {
   app.use('/api', verifyRequestOrigin);
   app.use('/api/v1/auth', noStore, authRouter);
   app.use('/api/v1/users', noStore, usersRouter);
+  app.use('/api/v1/cart', noStore, cartRouter);
   app.use('/api/v1/products', productsRouter);
   app.use('/api/v1/categories', categoriesRouter);
 

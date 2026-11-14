@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { postToApi } from '@/lib/api-client';
+import { callApi } from '@/lib/api-client';
 
 export function LogoutButton({
   everywhere = false,
@@ -19,7 +19,7 @@ export function LogoutButton({
   async function signOut() {
     setIsSubmitting(true);
     setFailed(false);
-    const result = await postToApi(everywhere ? '/auth/logout-all' : '/auth/logout');
+    const result = await callApi('POST', everywhere ? '/auth/logout-all' : '/auth/logout');
     if (result.ok) {
       router.replace('/');
       router.refresh();

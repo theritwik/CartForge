@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { ChangePasswordForm } from '@/components/auth/change-password-form';
 import { LogoutButton } from '@/components/auth/logout-button';
 import { getCurrentUser } from '@/lib/current-user';
 
@@ -34,6 +35,14 @@ export default async function AccountPage() {
           </div>
         ))}
       </dl>
+
+      <h2 className="mt-10 text-lg font-medium">Password</h2>
+      <p className="text-muted mt-2 text-sm">
+        Changing your password keeps this device signed in and signs out all others.
+      </p>
+      <div className="mt-4">
+        <ChangePasswordForm />
+      </div>
 
       <h2 className="mt-10 text-lg font-medium">Sessions</h2>
       <p className="text-muted mt-2 text-sm">

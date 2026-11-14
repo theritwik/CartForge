@@ -17,6 +17,19 @@ export const registerFormSchema = z.object({
     .max(128, 'Use 128 characters or fewer'),
 });
 
+export const changePasswordFormSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Enter your current password'),
+    newPassword: z
+      .string()
+      .min(10, 'Use at least 10 characters')
+      .max(128, 'Use 128 characters or fewer'),
+  })
+  .refine((input) => input.newPassword !== input.currentPassword, {
+    path: ['newPassword'],
+    message: 'Choose a password different from the current one',
+  });
+
 export type FieldErrors = Record<string, string>;
 
 /** The first message for each field, keyed by field name. */

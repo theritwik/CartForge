@@ -37,10 +37,14 @@ export function requireRole(...allowedRoles: UserRole[]): RequestHandler {
   };
 }
 
-/** The signed-in user for a route protected by requireAuth. */
-export function authenticatedUser(req: Request) {
+/** The signed-in user and session for a route protected by requireAuth. */
+export function authentication(req: Request) {
   if (!req.auth) {
-    throw new Error('authenticatedUser() was called on a route without requireAuth.');
+    throw new Error('A handler read the signed-in user on a route without requireAuth.');
   }
-  return req.auth.user;
+  return req.auth;
+}
+
+export function authenticatedUser(req: Request) {
+  return authentication(req).user;
 }

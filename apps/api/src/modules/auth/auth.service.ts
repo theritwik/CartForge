@@ -3,7 +3,7 @@ import { Prisma } from '@cartforge/db';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { publicUserSelect, type PublicUser } from '../users/users.service.js';
-import type { LoginInput, RegisterInput } from './auth.schemas.js';
+import type { ChangePasswordInput, LoginInput, RegisterInput } from './auth.schemas.js';
 import { hashPassword, passwordNeedsRehash, verifyPassword } from './password.js';
 import { createSession, revokeSession, type NewSession } from './sessions.js';
 
@@ -73,4 +73,32 @@ export async function login(
   }
 
   return { user, session: await createSession(user.id) };
+}
+
+/**
+ * Changes the password after checking the current one. The session making the
+ * request stays signed in; every other session of the account is ended, so a
+ * stolen session or a device left signed in loses access.
+ */
+export async function changePassword(
+  userId: string,
+  currentSessionId: string,
+  input: ChangePasswordInput,
+): Promise<void> {
+  const account = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { passwordHash: true },
+  });
+  if (!(await verifyPassword(account.passwordHash, input.currentPassword))) {
+    throw new AppError(400, 'INCORRECT_PASSWORD', 'The current password is incorrect.', [
+      { path: 'currentPassword', message: 'The current password is incorrect' },
+    ]);
+  }
+
+  // One transaction: the password never changes without the other sessions ending.
+  const passwordHash = await hashPassword(input.newPassword);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.session.deleteMany({ where: { userId, id: { not: currentSessionId } } }),
+  ]);
 }

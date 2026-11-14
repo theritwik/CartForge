@@ -89,6 +89,8 @@ Do not push, deploy, delete important files, or run destructive operations (incl
 - Protect routes with `requireAuth` and `requireRole` from `middleware/authenticate.ts`. Return users only through `publicUserSelect`. Roles are never accepted from request input.
 - State-changing API requests must carry the web app's `Origin`; API tests send it with the `post` helper in `apps/api/tests/auth-helpers.ts`.
 - Stock changes and order creation run inside database transactions.
+- Every write to a cart first locks the cart row (`lockCart` in the cart service). Adding to a cart never reserves stock. Stale cart items are flagged, not deleted.
+- Prisma's `upsert` is not safe for concurrent first inserts; use `createMany` with `skipDuplicates` when two requests may create the same row.
 - An order is marked paid only by a verified Stripe webhook, never by a client request.
 - Order items snapshot the product name and unit price at purchase time and are never updated.
 - CHECK constraints and triggers are hand-written in migration SQL. Prisma does not manage them; change them only through a new migration.

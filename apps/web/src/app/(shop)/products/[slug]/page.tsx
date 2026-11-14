@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { AddToCartButton } from '@/components/cart/add-to-cart-button';
 import { ProductGallery } from '@/components/catalog/product-gallery';
 import { getProduct } from '@/lib/catalog-api';
 import { formatPrice } from '@/lib/format';
@@ -74,12 +75,18 @@ export default async function ProductPage({ params }: ProductPageProps) {
             <StockStatus availableQuantity={product.availableQuantity} />
           </div>
 
+          <div className="mt-8">
+            {product.inStock ? (
+              <AddToCartButton productId={product.id} productName={product.name} />
+            ) : (
+              <p className="border-border text-muted rounded-lg border px-4 py-3 text-sm">
+                This product cannot be added to the cart while it is out of stock.
+              </p>
+            )}
+          </div>
+
           <h2 className="mt-8 text-sm font-medium">Description</h2>
           <p className="text-muted mt-2 leading-relaxed">{product.description}</p>
-
-          <p className="border-border text-muted mt-8 rounded-lg border px-4 py-3 text-sm">
-            Online ordering is not available yet. Cart and checkout arrive in a later release.
-          </p>
         </div>
       </div>
     </div>

@@ -9,10 +9,10 @@ Milestones are built in order, one at a time. A milestone is complete only when 
 | 2   | Database foundation                                     | done    |
 | 3   | Product catalog                                         | done    |
 | 4   | Authentication and users                                | done    |
-| 5   | Admin product and inventory management                  | planned |
-| 6   | Cart                                                    | planned |
-| 7   | Checkout and orders                                     | planned |
-| 8   | Stripe payments                                         | planned |
+| 5   | Cart and password change                                | done    |
+| 6   | Order management and inventory                          | planned |
+| 7   | Payments                                                | planned |
+| 8   | Admin dashboard                                         | planned |
 | 9   | Caching and hardening                                   | planned |
 | 10  | End-to-end tests, containers, and release documentation | planned |
 
@@ -64,34 +64,29 @@ Exit criteria: seeded catalog is browsable in the web app; query parameter valid
 
 Exit criteria: a user can register, log in, stay logged in while the session is active, and log out; a revoked or expired session is rejected on the next request; protected endpoints reject anonymous and wrong-role requests.
 
-Not done in this milestone: changing a password (and revoking the account's other sessions when it changes). It is listed under M5.
+Changing a password was added in M5.
 
-## M5 - Admin product and inventory management
+## M5 - Cart and password change
 
-- API: change password, revoking the account's other sessions.
-- API: admin product create, update, archive; category management; stock adjustment.
-- Web: admin area for products and stock, restricted to `ADMIN`.
-- Tests: authorization on every admin endpoint, validation, stock adjustment rules.
+- API: get cart with server-computed totals, add item, update quantity, remove item, clear cart. Only published products can be added; quantities are checked against available stock and a limit of 10 per product. Adding to the cart does not reserve stock.
+- Items that become unavailable or run short stay in the cart, flagged, and are excluded from the subtotal.
+- Every cart write locks the cart row, so concurrent changes are applied one after another.
+- Web: add-to-cart on product pages and cards, cart page with quantity controls, removal, and clear with confirmation, and a cart count in the header. Signed-out visitors are sent to sign in and returned to the page they were on.
+- API and web: change password, which requires the current password and ends the account's other sessions.
+- Tests: totals, quantity and stock limits, stale items, ownership, concurrency, persistence across logins, and password change.
 
-Exit criteria: an admin can manage the catalog and stock through the UI; a customer cannot reach admin endpoints or pages.
+Exit criteria: cart persists across sessions and devices for a user; totals are always computed on the server; concurrent changes never produce duplicate rows or exceed limits.
 
-## M6 - Cart
+## M6 - Order management and inventory
 
-- API: get cart with computed totals, add item, update quantity, remove item, clear cart. Quantities are checked against available stock.
-- Web: add-to-cart on product pages, cart page, cart count in the header.
-- Tests: totals, quantity limits, inactive products, per-user isolation.
-
-Exit criteria: cart persists across sessions and devices for a user; totals are always computed on the server.
-
-## M7 - Checkout and orders
-
-- API: checkout that reserves stock and creates a `PENDING_PAYMENT` order in one transaction; order history and detail for the owner; reservation expiry and release; admin order list and status transitions.
-- Web: checkout page with shipping address, order history, order detail, admin order management.
+- API: checkout that rechecks price, status, and stock, reserves stock, and creates a `PENDING_PAYMENT` order from the cart in one transaction; order history and detail for the owner; reservation expiry and release.
+- Inventory: reservations raise `reservedQuantity` with a conditional update, so concurrent checkouts cannot oversell; released reservations return the stock.
+- Web: checkout page with shipping address, order history, and order detail.
 - Tests: concurrent checkout for the last unit, price snapshot, ownership checks, status transition rules, reservation release.
 
-Exit criteria: concurrent checkouts never oversell; expired reservations return stock; orders are visible only to their owner and admins.
+Exit criteria: concurrent checkouts never oversell; expired reservations return stock; orders are visible only to their owner.
 
-## M8 - Stripe payments
+## M7 - Payments
 
 - Schema: table of processed Stripe event IDs for webhook idempotency.
 - API: PaymentIntent creation for an order; webhook endpoint with signature verification and idempotent handling of success and failure events.
@@ -99,6 +94,14 @@ Exit criteria: concurrent checkouts never oversell; expired reservations return 
 - Tests: signed webhook fixtures, duplicate delivery, invalid signature, amount mismatch, failure path releasing stock.
 
 Exit criteria: a test-card payment moves the order to `PAID` through the webhook only, decrements stock, and clears the cart; replayed events have no effect.
+
+## M8 - Admin dashboard
+
+- API: admin product create, update, archive; category management; stock adjustment; order list and status transitions.
+- Web: admin area for products, stock, and orders, restricted to `ADMIN`.
+- Tests: authorization on every admin endpoint, validation, stock adjustment rules, order status transitions.
+
+Exit criteria: an admin can manage the catalog, stock, and orders through the UI; a customer cannot reach admin endpoints or pages.
 
 ## M9 - Caching and hardening
 
