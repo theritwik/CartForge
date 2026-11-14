@@ -79,11 +79,16 @@ cartforge/
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma
 │   │   │   ├── migrations/
-│   │   │   └── seed.ts
-│   │   └── src/index.ts          exports the Prisma client and generated types
+│   │   │   ├── seed.ts
+│   │   │   └── seed-catalog.ts
+│   │   ├── src/
+│   │   │   ├── index.ts          exports the Prisma client and generated types
+│   │   │   └── testing.ts        test-database guards and helpers
+│   │   └── tests/                database integration tests
 │   └── shared/                   only if web and api need shared schemas or types
 ├── docs/
 │   ├── architecture.md
+│   ├── database.md
 │   └── roadmap.md
 ├── .github/
 │   └── workflows/ci.yml
@@ -223,26 +228,29 @@ Redis is not a source of truth. The API must behave correctly, only slower, when
 
 ## 5. Data model
 
-Proposed entities. Final field lists are settled in the milestone that introduces each table.
+The schema is implemented in `packages/db` and documented in full, with a relationship diagram, in [database.md](database.md).
 
-| Entity               | Key fields                                                                   | Notes                                                                      |
-| -------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| User                 | email (unique), passwordHash, name, role                                     |                                                                            |
-| Session              | userId, tokenHash (unique), createdAt, lastUsedAt, expiresAt                 | Stores only the hash of the session token; deleted on logout or revocation |
-| Category             | name, slug (unique)                                                          |                                                                            |
-| Product              | name, slug (unique), description, pricePaise, imageUrl, isActive, categoryId | Soft-deactivated, never hard-deleted once ordered                          |
-| InventoryItem        | productId (unique), quantityOnHand, quantityReserved                         | Available = onHand - reserved                                              |
-| CartItem             | userId, productId, quantity                                                  | Unique on (userId, productId)                                              |
-| Order                | userId, status, totalPaise, shipping address fields, reservationExpiresAt    |                                                                            |
-| OrderItem            | orderId, productId, productName, unitPricePaise, quantity                    | Snapshot of name and price at purchase                                     |
-| Payment              | orderId (unique), stripePaymentIntentId (unique), status, amountPaise        |                                                                            |
-| ProcessedStripeEvent | stripeEventId (unique), type, processedAt                                    | Webhook idempotency                                                        |
+| Entity       | Key fields                                                                                        | Notes                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| User         | email (unique), passwordHash, name, role                                                          |                                                                                     |
+| Session      | userId, tokenHash (unique), createdAt, lastUsedAt, expiresAt                                      | Stores only the hash of the session token; deleted on logout or revocation          |
+| Category     | name (unique), slug (unique)                                                                      |                                                                                     |
+| Product      | categoryId, name, slug (unique), description, pricePaise, status, stockQuantity, reservedQuantity | Available = stockQuantity - reservedQuantity. Archived, never deleted, once ordered |
+| ProductImage | productId, url, altText, position                                                                 | Position 0 is the primary image                                                     |
+| Cart         | userId (unique)                                                                                   | One cart per user                                                                   |
+| CartItem     | cartId, productId, quantity                                                                       | Unique on (cartId, productId)                                                       |
+| Order        | userId, status, totalPaise, shipping address fields, reservationExpiresAt                         |                                                                                     |
+| OrderItem    | orderId, productId, productName, unitPricePaise, quantity                                         | Immutable snapshot of name and price at purchase                                    |
+| Payment      | orderId (unique), stripePaymentIntentId (unique), status, amountPaise                             |                                                                                     |
+
+A table recording processed Stripe event IDs, for webhook idempotency, is added in the payments milestone when it is first used.
 
 Rules:
 
 - The currency is INR. All money is stored and computed as integer paise (minor currency units, 100 paise = 1 rupee). Totals are computed on the server from database prices, never from client input.
 - Amounts are converted to rupees only for display. Stripe receives the amount in paise with currency `inr`, which is the unit its API expects.
-- Primary keys are opaque IDs generated by the database layer; public URLs use slugs for products.
+- Primary keys are UUID v7 values; public URLs use slugs for products.
+- Rules the database can enforce are enforced there: uniqueness, foreign keys, CHECK constraints on amounts and quantities, and a trigger that makes order items immutable.
 
 ## 6. Critical flows
 
@@ -251,7 +259,7 @@ Rules:
 1. The client submits the cart for checkout with a shipping address.
 2. In one transaction the orders service:
    - reloads cart items and current prices,
-   - reserves stock with a conditional update per product (`quantityReserved` increases only where `quantityOnHand - quantityReserved >= requested`),
+   - reserves stock with a conditional update per product (`reservedQuantity` increases only where `stockQuantity - reservedQuantity >= requested`),
    - aborts with `INSUFFICIENT_STOCK` if any update affects zero rows,
    - creates the `Order` (`PENDING_PAYMENT`) and its `OrderItem` snapshots.
 3. The payments service creates a Stripe PaymentIntent for the order total and returns its client secret.
@@ -262,8 +270,8 @@ The conditional update makes the database the arbiter of concurrent purchases, s
 
 1. The browser confirms the payment with Stripe Elements.
 2. Stripe sends `payment_intent.succeeded` (or `payment_intent.payment_failed`) to the webhook endpoint.
-3. The API verifies the signature against the raw request body, then records the event ID in `ProcessedStripeEvent`. A duplicate ID is acknowledged and ignored.
-4. On success, in one transaction: order becomes `PAID`, reserved stock is converted to a decrement of `quantityOnHand`, and the user's cart is cleared.
+3. The API verifies the signature against the raw request body, then records the event ID in a processed-events table. A duplicate ID is acknowledged and ignored.
+4. On success, in one transaction: order becomes `PAID`, the reservation is converted into a sale by decreasing both `reservedQuantity` and `stockQuantity`, and the user's cart is cleared.
 5. On failure or reservation expiry: order becomes `CANCELLED` and the reservation is released.
 
 The success page shown to the user is informational. Only the webhook changes order state.
@@ -295,7 +303,7 @@ Transitions are enforced in the orders service. Invalid transitions are rejected
 | Integration | Vitest + Supertest | HTTP endpoints against a real PostgreSQL test database, including auth, authorization, and concurrency on stock |
 | End-to-end  | Playwright         | Critical journeys: register, browse, add to cart, check out with a Stripe test card, see the order              |
 
-Integration tests do not mock Prisma. Stripe is exercised with test-mode keys or signed fixture webhooks.
+Integration tests do not mock Prisma. They run against a separate test database and cannot connect to the development database; see [database.md](database.md). Stripe is exercised with test-mode keys or signed fixture webhooks.
 
 ## 9. Local development and CI
 
@@ -310,9 +318,9 @@ Node.js uses an LTS release: `.nvmrc` pins the version used for development and 
 
 ## 11. Open decisions
 
-| Decision                     | Current leaning                                                             | Decided in        |
-| ---------------------------- | --------------------------------------------------------------------------- | ----------------- |
-| Product images               | URL field pointing at seeded or external images; no upload pipeline         | M2                |
-| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process | M6                |
-| Stripe integration surface   | PaymentIntents with Stripe Elements                                         | M7                |
-| `packages/shared`            | Create only if Zod schemas are needed by both apps                          | When first needed |
+| Decision                     | Current leaning                                                                 | Decided in        |
+| ---------------------------- | ------------------------------------------------------------------------------- | ----------------- |
+| Product images               | `ProductImage` rows hold URLs; seed uses placeholder images; no upload pipeline | M3                |
+| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process     | M7                |
+| Stripe integration surface   | PaymentIntents with Stripe Elements                                             | M8                |
+| `packages/shared`            | Create only if Zod schemas are needed by both apps                              | When first needed |

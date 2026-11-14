@@ -1,6 +1,6 @@
 # CartForge
 
-Full-stack e-commerce application built as a pnpm monorepo. See `docs/architecture.md` for design decisions and `docs/roadmap.md` for milestone scope and status.
+Full-stack e-commerce application built as a pnpm monorepo. See `docs/architecture.md` for design decisions, `docs/database.md` for the schema, and `docs/roadmap.md` for milestone scope and status.
 
 ## Stack
 
@@ -17,7 +17,7 @@ Full-stack e-commerce application built as a pnpm monorepo. See `docs/architectu
 - `apps/api` - Express REST API, organised by feature under `src/modules/`
 - `packages/db` - Prisma schema, migrations, seed, and the exported client
 - `packages/shared` - created only when web and api genuinely share code
-- `docs/` - architecture and roadmap
+- `docs/` - architecture, database schema, and roadmap
 
 API modules: `auth`, `users`, `products`, `cart`, `inventory`, `orders`, `payments`. Each module contains only the files it needs (routes, controller, service, schemas, tests).
 
@@ -28,9 +28,11 @@ Run from the repository root. Node.js 24 (`.nvmrc`), pnpm 10.
 - `pnpm services:up` / `pnpm services:down` - start or stop PostgreSQL and Redis
 - `pnpm dev` - run the API (port 4000) and web app (port 3000)
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm format:check`, `pnpm build`
+- `pnpm db:migrate` - create and apply a migration from schema changes (development database)
+- `pnpm db:seed` - load the development catalog; safe to run repeatedly
 - `pnpm --filter @cartforge/db build` - regenerate and rebuild the Prisma client after schema changes
 
-Tests need the Compose services running. Configuration lives in `.env` (Compose, API, Prisma CLI) and `apps/web/.env.local`.
+Tests need the Compose services running. They use `TEST_DATABASE_URL` only and must never connect to the development database; use the helpers in `@cartforge/db/testing`. Configuration lives in `.env` (Compose, API, Prisma CLI, tests) and `apps/web/.env.local`.
 
 ## Workflow
 
@@ -83,4 +85,5 @@ Do not push, deploy, delete important files, or run destructive operations (incl
 - Authentication uses opaque, database-backed sessions in an httpOnly cookie. No JWTs. Only a hash of the session token is stored.
 - Stock changes and order creation run inside database transactions.
 - An order is marked paid only by a verified Stripe webhook, never by a client request.
-- Order items snapshot the product name and unit price at purchase time.
+- Order items snapshot the product name and unit price at purchase time and are never updated.
+- CHECK constraints and triggers are hand-written in migration SQL. Prisma does not manage them; change them only through a new migration.
