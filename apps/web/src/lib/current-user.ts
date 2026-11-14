@@ -16,6 +16,6 @@ export type CurrentUser = z.infer<typeof currentUserSchema>['data'];
 
 /** The signed-in user, or null. The API is the only place the session is checked. */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  const body = await fetchAsCurrentUser('/users/me');
-  return body === null ? null : currentUserSchema.parse(body).data;
+  const reply = await fetchAsCurrentUser('/users/me');
+  return reply.status === 'ok' ? currentUserSchema.parse(reply.body).data : null;
 });

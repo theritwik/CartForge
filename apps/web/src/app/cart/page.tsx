@@ -65,8 +65,20 @@ export default async function CartPage() {
               Some items cannot be bought as they are and are not included in the subtotal.
             </p>
           )}
-          <p className="text-muted border-border mt-4 border-t pt-4 text-sm">
-            Prices and stock are checked again at checkout. Checkout is not available yet.
+          {cart.hasItemsNeedingAttention ? (
+            <p className="text-muted border-border mt-4 border-t pt-4 text-sm">
+              Update or remove those items to continue to checkout.
+            </p>
+          ) : (
+            <Link
+              href="/checkout"
+              className="bg-foreground text-background mt-5 block rounded-md px-5 py-2.5 text-center text-sm font-medium transition-opacity hover:opacity-90"
+            >
+              Proceed to checkout
+            </Link>
+          )}
+          <p className="text-muted mt-4 text-sm">
+            Prices and stock are checked again when you place the order.
           </p>
           <Link
             href="/products"

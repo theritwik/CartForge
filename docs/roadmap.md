@@ -10,7 +10,7 @@ Milestones are built in order, one at a time. A milestone is complete only when 
 | 3   | Product catalog                                         | done    |
 | 4   | Authentication and users                                | done    |
 | 5   | Cart and password change                                | done    |
-| 6   | Order management and inventory                          | planned |
+| 6   | Order management and inventory                          | done    |
 | 7   | Payments                                                | planned |
 | 8   | Admin dashboard                                         | planned |
 | 9   | Caching and hardening                                   | planned |
@@ -79,10 +79,13 @@ Exit criteria: cart persists across sessions and devices for a user; totals are 
 
 ## M6 - Order management and inventory
 
-- API: checkout that rechecks price, status, and stock, reserves stock, and creates a `PENDING_PAYMENT` order from the cart in one transaction; order history and detail for the owner; reservation expiry and release.
-- Inventory: reservations raise `reservedQuantity` with a conditional update, so concurrent checkouts cannot oversell; released reservations return the stock.
-- Web: checkout page with shipping address, order history, and order detail.
-- Tests: concurrent checkout for the last unit, price snapshot, ownership checks, status transition rules, reservation release.
+- API: idempotent checkout that rechecks price, status, and stock, reserves stock, creates a `PENDING_PAYMENT` order from the cart, and empties the cart, in one transaction; order history and detail for the owner; cancellation while awaiting payment.
+- Inventory: reserve, release, and sale operations that always run inside the caller's transaction and update products in a fixed order. Conditional updates mean concurrent checkouts cannot oversell.
+- Reservations expire after 30 minutes, through a per-minute sweep and on view, releasing stock exactly once.
+- `confirmOrderPayment` is implemented and tested for the payment webhook; no route calls it yet.
+- Schema: `PROCESSING` and `EXPIRED` order statuses and a per-customer idempotency key.
+- Web: checkout page with shipping address and order summary, order history, and order detail with status tracker and cancellation.
+- Tests: concurrent checkout for the last unit, multi-product rollback, duplicate requests, price changes, expiry and recovery, cancellation, ownership.
 
 Exit criteria: concurrent checkouts never oversell; expired reservations return stock; orders are visible only to their owner.
 

@@ -90,7 +90,10 @@ export async function getCart(userId: string) {
  * undefined if the user has no cart yet. Every write to a cart takes this lock
  * first, so concurrent changes to one cart run one after another.
  */
-async function lockCart(tx: Prisma.TransactionClient, userId: string): Promise<string | undefined> {
+export async function lockCart(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<string | undefined> {
   const [cart] = await tx.$queryRaw<{ id: string }[]>`
     SELECT id FROM carts WHERE user_id = ${userId}::uuid FOR UPDATE
   `;

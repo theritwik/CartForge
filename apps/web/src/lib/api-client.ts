@@ -14,7 +14,9 @@ const errorEnvelopeSchema = z.object({
 });
 
 export type ApiResult =
-  { ok: true } | { ok: false; code: string; message: string; fieldErrors: FieldErrors };
+  /** `data` is the parsed response body, or null when the response has none. */
+  | { ok: true; data: unknown }
+  | { ok: false; code: string; message: string; fieldErrors: FieldErrors };
 
 function failure(code: string, message: string, fieldErrors: FieldErrors = {}): ApiResult {
   return { ok: false, code, message, fieldErrors };
@@ -29,23 +31,25 @@ export async function callApi(
   method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
+  headers: Record<string, string> = {},
 ): Promise<ApiResult> {
   let response: Response;
   try {
     response = await fetch(`/api/v1${path}`, {
       method,
-      ...(body === undefined
-        ? {}
-        : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      headers: body === undefined ? headers : { ...headers, 'Content-Type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     return failure('NETWORK_ERROR', 'Could not reach the server. Check your connection.');
   }
+
+  const responseBody: unknown = await response.json().catch(() => null);
   if (response.ok) {
-    return { ok: true };
+    return { ok: true, data: responseBody };
   }
 
-  const envelope = errorEnvelopeSchema.safeParse(await response.json().catch(() => null));
+  const envelope = errorEnvelopeSchema.safeParse(responseBody);
   if (!envelope.success) {
     return failure('UNEXPECTED_ERROR', 'Something went wrong. Please try again.');
   }

@@ -4,9 +4,11 @@ import { logger } from './lib/logger.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { deleteExpiredSessions } from './modules/auth/sessions.js';
+import { expireOverdueOrders } from './modules/orders/orders.service.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 const SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+const ORDER_EXPIRY_INTERVAL_MS = 60 * 1000;
 
 // Not awaited: the client keeps retrying in the background, and /health reports Redis as down meanwhile.
 redis.connect().catch((error: unknown) => {
@@ -23,6 +25,13 @@ setInterval(() => {
     logger.error({ err: error }, 'Expired session sweep failed');
   });
 }, SESSION_SWEEP_INTERVAL_MS).unref();
+
+// Returns the stock held by unpaid orders whose reservation has run out.
+setInterval(() => {
+  expireOverdueOrders().catch((error: unknown) => {
+    logger.error({ err: error }, 'Order expiry sweep failed');
+  });
+}, ORDER_EXPIRY_INTERVAL_MS).unref();
 
 function shutdown(signal: NodeJS.Signals): void {
   logger.info({ signal }, 'Shutting down');

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createPrismaClient } from '../src/index.js';
 import { truncateAllTables } from '../src/testing.js';
@@ -60,6 +61,7 @@ async function createOrder(
   return prisma.order.create({
     data: {
       userId,
+      idempotencyKey: randomUUID(),
       totalPaise: product.pricePaise * 2,
       shippingName: 'Asha Rao',
       shippingPhone: '+919800000000',

@@ -32,6 +32,6 @@ export type Cart = z.infer<typeof cartSchema>['data'];
 
 /** The signed-in customer's cart, or null for a visitor who is not signed in. */
 export const getCart = cache(async (): Promise<Cart | null> => {
-  const body = await fetchAsCurrentUser('/cart');
-  return body === null ? null : cartSchema.parse(body).data;
+  const reply = await fetchAsCurrentUser('/cart');
+  return reply.status === 'ok' ? cartSchema.parse(reply.body).data : null;
 });
