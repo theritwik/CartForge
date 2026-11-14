@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState, type SubmitEvent } from 'react';
 import type { z } from 'zod';
-import { postToApi } from '@/lib/api-client';
+import { callApi } from '@/lib/api-client';
 import { fieldErrorsFrom, type FieldErrors } from '@/lib/auth-forms';
 
 /**
@@ -28,7 +28,7 @@ export function useAuthForm(options: { schema: z.ZodType; endpoint: string; redi
 
     setFieldErrors({});
     setIsSubmitting(true);
-    const result = await postToApi(options.endpoint, input.data);
+    const result = await callApi('POST', options.endpoint, input.data);
     if (result.ok) {
       // Stays in the submitting state until the next page replaces the form.
       router.replace(options.redirectTo);

@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express';
 import { consumeRateLimit, resetRateLimit, type RateLimit } from '../../lib/rate-limit.js';
-import { authenticatedUser } from '../../middleware/authenticate.js';
-import { loginSchema, registerSchema } from './auth.schemas.js';
-import { login, register } from './auth.service.js';
+import { authenticatedUser, authentication } from '../../middleware/authenticate.js';
+import { changePasswordSchema, loginSchema, registerSchema } from './auth.schemas.js';
+import { changePassword, login, register } from './auth.service.js';
 import { clearSessionCookie, readSessionToken, setSessionCookie } from './session-cookie.js';
 import { revokeAllSessions, revokeSession } from './sessions.js';
 
@@ -21,6 +21,13 @@ const REGISTER_LIMIT_PER_IP: RateLimit = {
   bucket: 'register:ip',
   limit: 10,
   windowSeconds: 60 * 60,
+};
+
+// Limits guessing of the current password from a session someone else got hold of.
+const CHANGE_PASSWORD_LIMIT_PER_USER: RateLimit = {
+  bucket: 'change-password:user',
+  limit: 5,
+  windowSeconds: FIFTEEN_MINUTES,
 };
 
 function clientAddress(req: Request): string {
@@ -60,5 +67,15 @@ export async function logoutHandler(req: Request, res: Response): Promise<void> 
 export async function logoutEverywhereHandler(req: Request, res: Response): Promise<void> {
   await revokeAllSessions(authenticatedUser(req).id);
   clearSessionCookie(res);
+  res.status(204).end();
+}
+
+export async function changePasswordHandler(req: Request, res: Response): Promise<void> {
+  const input = changePasswordSchema.parse(req.body);
+  const { user, sessionId } = authentication(req);
+  await consumeRateLimit(CHANGE_PASSWORD_LIMIT_PER_USER, user.id);
+
+  await changePassword(user.id, sessionId, input);
+  await resetRateLimit(CHANGE_PASSWORD_LIMIT_PER_USER, user.id);
   res.status(204).end();
 }

@@ -11,6 +11,14 @@ export function post(path: string) {
   return request(app).post(path).set('Origin', env.WEB_ORIGIN);
 }
 
+export function patch(path: string) {
+  return request(app).patch(path).set('Origin', env.WEB_ORIGIN);
+}
+
+export function del(path: string) {
+  return request(app).delete(path).set('Origin', env.WEB_ORIGIN);
+}
+
 /** The session cookie set by a response, if any. */
 export function sessionCookieOf(response: Response) {
   const header = response.get('Set-Cookie') ?? [];

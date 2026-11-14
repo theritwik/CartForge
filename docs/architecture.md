@@ -187,7 +187,7 @@ Authentication uses opaque, server-side sessions stored in PostgreSQL. There are
 
 - Logout deletes the session row and clears the cookie. The token is useless immediately.
 - "Log out of all devices" deletes every session for the user.
-- A password change will delete all of the user's other sessions once the change-password endpoint is built (M5).
+- A password change requires the current password, keeps the session that made the change, and deletes all of the user's other sessions. Attempts are limited to 5 per user every 15 minutes.
 - Because every request checks the database, revocation takes effect on the next request with no token-lifetime window.
 
 **Cookie configuration**
@@ -308,11 +308,28 @@ Transitions are enforced in the orders service. Invalid transitions are rejected
 - Numeric query parameters must be plain decimal digits, search text may not contain control characters, and a malformed product slug is answered with 404 without querying the database.
 - The categories endpoint lists only categories that have at least one published product.
 
+### 6.5 Cart
+
+- A cart belongs to a signed-in user. Routes take no user or cart identifier; the user always comes from the session, and item lookups are scoped to that user's cart, so another customer's item id is simply not found.
+- Adding to the cart never reserves stock. Price, status, and stock are read fresh every time the cart is returned, and are checked again at checkout.
+- Totals use the current database price. The client sends only a product id and a quantity; any other field is discarded by validation.
+- Each item reports an availability: `AVAILABLE`, `INSUFFICIENT_STOCK`, `OUT_OF_STOCK`, or `UNAVAILABLE`. Items that cannot be bought as they stand are kept, flagged, and excluded from the subtotal. They are never removed automatically.
+- A customer may always lower a quantity or remove an item. Raising a quantity requires a published product with enough stock, up to 10 per product.
+
+**Concurrency.** Every write (add, update, remove, clear) runs in a transaction that first takes a row lock on the user's cart (`SELECT ... FOR UPDATE`). Writes to one cart therefore run one after another, each seeing the result of the previous one, while different customers' carts never block each other.
+
+- Two simultaneous adds of the same product both apply: the second waits, reads the quantity left by the first, and adds to it. The unique constraint on (cart, product) means there is only ever one row.
+- Two simultaneous quantity updates are both accepted and the one that commits second determines the stored value. Each sets an absolute quantity, so the result is always one of the two requested values.
+- The quantity limit and stock check are evaluated under the lock, so parallel requests cannot push an item past either.
+- The cart row itself is created with `INSERT ... ON CONFLICT DO NOTHING` before the lock is taken, which is safe when a customer's first two requests arrive together.
+- Reads take no lock.
+
 ## 7. Frontend
 
 - Server Components by default; catalog and product pages fetch on the server. Client Components are used for interactive parts (cart controls, forms, Stripe Elements).
 - Route groups separate the storefront, auth pages, account pages, and admin area, each with its own layout where needed.
 - `lib/catalog-api.ts` is the catalog API client. Server Components call the API directly at `API_URL`, server to server, and validate each response with Zod. Requests made from the browser use the same-origin `/api` proxy.
+- Cart state lives only on the server. Cart buttons call the API and then refresh the server-rendered page and header count; nothing about the cart is kept in `localStorage` or a client store.
 - Listing state (search, price range, sort, page) lives in the URL. Pages parse it leniently, so a malformed query string falls back to defaults instead of an error page.
 - Protected routes are checked on the server; the API remains the authority on authorization.
 - No global state library is planned. Server state comes from the API; local state stays in components. This is revisited only if a concrete need appears.
@@ -342,6 +359,6 @@ Node.js uses an LTS release: `.nvmrc` pins the version used for development and 
 
 | Decision                     | Current leaning                                                             | Decided in        |
 | ---------------------------- | --------------------------------------------------------------------------- | ----------------- |
-| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process | M7                |
-| Stripe integration surface   | PaymentIntents with Stripe Elements                                         | M8                |
+| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process | M6                |
+| Stripe integration surface   | PaymentIntents with Stripe Elements                                         | M7                |
 | `packages/shared`            | Create only if Zod schemas are needed by both apps                          | When first needed |

@@ -17,7 +17,7 @@ export function SiteHeader() {
         </nav>
         <SearchForm />
         {/* Streams in after the rest of the header, so pages do not wait on the session check. */}
-        <Suspense fallback={<div className="ml-auto h-8 w-40" aria-hidden="true" />}>
+        <Suspense fallback={<div className="ml-auto h-8 w-48" aria-hidden="true" />}>
           <AccountNav />
         </Suspense>
       </div>

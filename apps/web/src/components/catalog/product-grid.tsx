@@ -14,7 +14,7 @@ export function ProductGrid({
   return (
     <ul className={`${gridClass} ${wide ? 'lg:grid-cols-4' : ''}`}>
       {products.map((product) => (
-        <li key={product.id}>
+        <li key={product.id} className="h-full">
           <ProductCard product={product} />
         </li>
       ))}

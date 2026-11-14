@@ -2,12 +2,13 @@
 
 A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL, and Redis, organised as a pnpm monorepo.
 
-**Status:** Milestones 1 to 4 are complete: project foundation, database, a browsable product catalog, and user accounts. Cart, checkout, payments, and the admin area are not built yet. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
+**Status:** Milestones 1 to 5 are complete: project foundation, database, a browsable product catalog, user accounts, and a persistent shopping cart. Checkout, payments, and the admin area are not built yet. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
 
 ## What works today
 
 - Storefront: homepage, product listing with search, category and price filters, sorting and pagination, category pages, and product detail pages with an image gallery and stock status.
-- Accounts: registration, sign-in, sign-out, sign-out of all devices, and an account page, using database-backed sessions in an HttpOnly cookie.
+- Accounts: registration, sign-in, sign-out, sign-out of all devices, password change, and an account page, using database-backed sessions in an HttpOnly cookie.
+- Cart: add from product pages and listings, change quantities, remove items, and clear the cart. The cart is stored in PostgreSQL per account, so it follows the customer across devices.
 - Catalog API: product list, product detail, and categories, validated with Zod and limited to published products.
 - Auth API: Argon2id password hashing, session expiry and revocation, role checks for customers and administrators, CSRF protection, and login rate limiting.
 - PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed.
@@ -37,6 +38,7 @@ Product images are labelled placeholder drawings, not product photography.
 │   │   │   ├── middleware/          authentication, CSRF origin check, not-found and error handlers
 │   │   │   ├── modules/
 │   │   │   │   ├── auth/            registration, login, logout, sessions, password hashing
+│   │   │   │   ├── cart/            cart routes, controller, service, schemas, tests
 │   │   │   │   ├── health/          health endpoint
 │   │   │   │   ├── products/        catalog routes, controller, service, schemas, tests
 │   │   │   │   └── users/           current user and administrator user list
@@ -50,8 +52,10 @@ Product images are labelled placeholder drawings, not product photography.
 │       ├── src/app/(shop)/          homepage, products, product detail, categories
 │       ├── src/app/(auth)/          sign-in and registration pages
 │       ├── src/app/account/         account page
+│       ├── src/app/cart/            cart page
 │       ├── src/components/          header, footer, search form, account navigation
-│       ├── src/components/auth/     sign-in and registration forms, sign-out button
+│       ├── src/components/auth/     sign-in, registration, and password forms, sign-out button
+│       ├── src/components/cart/     add-to-cart button, cart rows, clear-cart control, header cart link
 │       ├── src/components/catalog/  product card and grid, filters, sort, pagination, gallery
 │       ├── src/lib/                 API clients, current user lookup, form schemas, URL filter parsing
 │       └── next.config.ts           API proxy and environment validation
@@ -117,14 +121,15 @@ Run from the repository root.
 
 ## Accounts and authentication
 
-| Endpoint                       | Access        | Description                           |
-| ------------------------------ | ------------- | ------------------------------------- |
-| `POST /api/v1/auth/register`   | Public        | Create a customer account and sign in |
-| `POST /api/v1/auth/login`      | Public        | Sign in                               |
-| `POST /api/v1/auth/logout`     | Public        | End the current session               |
-| `POST /api/v1/auth/logout-all` | Signed in     | End every session of the account      |
-| `GET /api/v1/users/me`         | Signed in     | The signed-in user                    |
-| `GET /api/v1/users`            | Administrator | Paginated list of users               |
+| Endpoint                            | Access        | Description                                              |
+| ----------------------------------- | ------------- | -------------------------------------------------------- |
+| `POST /api/v1/auth/register`        | Public        | Create a customer account and sign in                    |
+| `POST /api/v1/auth/login`           | Public        | Sign in                                                  |
+| `POST /api/v1/auth/logout`          | Public        | End the current session                                  |
+| `POST /api/v1/auth/logout-all`      | Signed in     | End every session of the account                         |
+| `POST /api/v1/auth/change-password` | Signed in     | Change the password and end the account's other sessions |
+| `GET /api/v1/users/me`              | Signed in     | The signed-in user                                       |
+| `GET /api/v1/users`                 | Administrator | Paginated list of users                                  |
 
 Sessions are opaque random tokens kept in an HttpOnly cookie; only their SHA-256 hash is stored. State-changing requests must come from the web app's origin (`WEB_ORIGIN`), so when calling the API directly, send an `Origin` header:
 
@@ -141,6 +146,57 @@ pnpm admin:create
 ```
 
 It asks for a name, an email, and a password. The password is typed at a hidden prompt and is not accepted as an argument or environment variable, so it is not saved in shell history. For scripted use, set `ADMIN_NAME` and `ADMIN_EMAIL` and pipe the password in on standard input.
+
+## Cart
+
+All cart endpoints require a signed-in user and act on that user's cart.
+
+| Endpoint                            | Description                                             |
+| ----------------------------------- | ------------------------------------------------------- |
+| `GET /api/v1/cart`                  | The cart with current prices, availability, and totals  |
+| `POST /api/v1/cart/items`           | Add a product, or raise its quantity if already present |
+| `PATCH /api/v1/cart/items/:itemId`  | Set an item's quantity                                  |
+| `DELETE /api/v1/cart/items/:itemId` | Remove an item                                          |
+| `DELETE /api/v1/cart`               | Remove every item                                       |
+
+Every endpoint returns the resulting cart. Amounts are integer paise, calculated from current database prices:
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "01a1dc0e-…",
+        "quantity": 2,
+        "availability": "AVAILABLE",
+        "lineTotalPaise": 239800,
+        "product": {
+          "id": "01a1d9d2-…",
+          "name": "Yoga Mat, 6 mm",
+          "slug": "yoga-mat-6mm",
+          "pricePaise": 119900,
+          "image": { "url": "/images/products/yoga-mat-6mm-1.svg", "altText": "…" },
+          "availableQuantity": 110
+        }
+      }
+    ],
+    "itemCount": 2,
+    "subtotalPaise": 239800,
+    "hasItemsNeedingAttention": false,
+    "maxQuantityPerItem": 10
+  }
+}
+```
+
+A cart holds at most 10 of one product. Adding to the cart does not reserve stock. An item whose product is withdrawn or runs short stays in the cart with an `availability` of `UNAVAILABLE`, `OUT_OF_STOCK`, or `INSUFFICIENT_STOCK` and is left out of the subtotal.
+
+| Error code                | Status | Meaning                                         |
+| ------------------------- | ------ | ----------------------------------------------- |
+| `PRODUCT_NOT_FOUND`       | 404    | The product does not exist or is not published  |
+| `CART_ITEM_NOT_FOUND`     | 404    | The item is not in the caller's cart            |
+| `OUT_OF_STOCK`            | 409    | No units are available                          |
+| `INSUFFICIENT_STOCK`      | 409    | Fewer units are available than requested        |
+| `QUANTITY_LIMIT_EXCEEDED` | 409    | The cart would hold more than 10 of the product |
 
 ## Tests and the test database
 

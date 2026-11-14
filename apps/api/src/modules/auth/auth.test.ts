@@ -470,6 +470,119 @@ describe('logout', () => {
   });
 });
 
+describe('POST /api/v1/auth/change-password', () => {
+  const NEW_PASSWORD = 'a brand new passphrase';
+
+  function changePassword(cookie: string, body: object) {
+    return post('/api/v1/auth/change-password').set('Cookie', cookie).send(body);
+  }
+
+  function logIn(email: string, password: string) {
+    return post('/api/v1/auth/login').send({ email, password });
+  }
+
+  it('replaces the password with a new Argon2id hash', async () => {
+    const user = await signUp();
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+
+    const response = await changePassword(user.cookie, {
+      currentPassword: user.password,
+      newPassword: NEW_PASSWORD,
+    });
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+
+    expect(response.status).toBe(204);
+    expect(after.passwordHash).toMatch(/^\$argon2id\$/);
+    expect(after.passwordHash).not.toBe(before.passwordHash);
+    expect((await logIn(user.email, user.password)).status).toBe(401);
+    expect((await logIn(user.email, NEW_PASSWORD)).status).toBe(200);
+  });
+
+  it('keeps the current session and ends every other session of the account', async () => {
+    const user = await signUp();
+    const otherUser = await signUp();
+    const otherDevice = sessionCookieOf(await logIn(user.email, user.password));
+    const otherDeviceCookie = `${otherDevice?.name}=${otherDevice?.value}`;
+
+    await changePassword(user.cookie, {
+      currentPassword: user.password,
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect((await getProfile(user.cookie)).status).toBe(200);
+    expect((await getProfile(otherDeviceCookie)).status).toBe(401);
+    expect((await getProfile(otherUser.cookie)).status).toBe(200);
+  });
+
+  it('rejects a wrong current password and changes nothing', async () => {
+    const user = await signUp();
+    const otherDevice = sessionCookieOf(await logIn(user.email, user.password));
+
+    const response = await changePassword(user.cookie, {
+      currentPassword: 'not the password',
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      error: { code: 'INCORRECT_PASSWORD', details: [{ path: 'currentPassword' }] },
+    });
+    expect((await logIn(user.email, user.password)).status).toBe(200);
+    expect((await getProfile(`${otherDevice?.name}=${otherDevice?.value}`)).status).toBe(200);
+  });
+
+  it.each([
+    ['a new password that is too short', { newPassword: 'short' }, 'newPassword'],
+    [
+      'a new password equal to the current one',
+      { newPassword: 'correct horse battery' },
+      'newPassword',
+    ],
+    ['a missing current password', { currentPassword: undefined }, 'currentPassword'],
+  ])('rejects %s', async (_description, override, path) => {
+    const user = await signUp();
+
+    const response = await changePassword(user.cookie, {
+      currentPassword: user.password,
+      newPassword: NEW_PASSWORD,
+      ...override,
+    });
+    const body = response.body as { error: { code: string; details: { path: string }[] } };
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(body.error.details.map((detail) => detail.path)).toEqual([path]);
+  });
+
+  it('requires a session', async () => {
+    const response = await post('/api/v1/auth/change-password').send({
+      currentPassword: 'correct horse battery',
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(response.status).toBe(401);
+  });
+
+  it('blocks further attempts after five wrong current passwords', async () => {
+    const user = await signUp();
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const failed = await changePassword(user.cookie, {
+        currentPassword: 'wrong',
+        newPassword: NEW_PASSWORD,
+      });
+      expect(failed.status).toBe(400);
+    }
+
+    const response = await changePassword(user.cookie, {
+      currentPassword: user.password,
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(response.status).toBe(429);
+    expect((await logIn(user.email, user.password)).status).toBe(200);
+  });
+});
+
 describe('CSRF protection', () => {
   const credentials = { email: validRegistration.email, password: validRegistration.password };
 
