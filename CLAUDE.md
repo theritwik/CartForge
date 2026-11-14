@@ -21,6 +21,17 @@ Full-stack e-commerce application built as a pnpm monorepo. See `docs/architectu
 
 API modules: `auth`, `users`, `products`, `cart`, `inventory`, `orders`, `payments`. Each module contains only the files it needs (routes, controller, service, schemas, tests).
 
+## Commands
+
+Run from the repository root. Node.js 24 (`.nvmrc`), pnpm 10.
+
+- `pnpm services:up` / `pnpm services:down` - start or stop PostgreSQL and Redis
+- `pnpm dev` - run the API (port 4000) and web app (port 3000)
+- `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm format:check`, `pnpm build`
+- `pnpm --filter @cartforge/db build` - regenerate and rebuild the Prisma client after schema changes
+
+Tests need the Compose services running. Configuration lives in `.env` (Compose, API, Prisma CLI) and `apps/web/.env.local`.
+
 ## Workflow
 
 Work proceeds one milestone at a time, as defined in `docs/roadmap.md`.

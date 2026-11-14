@@ -2,18 +2,18 @@
 
 Milestones are built in order, one at a time. A milestone is complete only when its exit criteria pass. Status values: `planned`, `in progress`, `done`.
 
-| # | Milestone | Status |
-| --- | --- | --- |
-| 0 | Planning and architecture | done |
-| 1 | Monorepo foundation | planned |
-| 2 | Database and product catalog | planned |
-| 3 | Authentication and users | planned |
-| 4 | Admin product and inventory management | planned |
-| 5 | Cart | planned |
-| 6 | Checkout and orders | planned |
-| 7 | Stripe payments | planned |
-| 8 | Caching and hardening | planned |
-| 9 | End-to-end tests, containers, and release documentation | planned |
+| #   | Milestone                                               | Status  |
+| --- | ------------------------------------------------------- | ------- |
+| 0   | Planning and architecture                               | done    |
+| 1   | Monorepo foundation                                     | done    |
+| 2   | Database and product catalog                            | planned |
+| 3   | Authentication and users                                | planned |
+| 4   | Admin product and inventory management                  | planned |
+| 5   | Cart                                                    | planned |
+| 6   | Checkout and orders                                     | planned |
+| 7   | Stripe payments                                         | planned |
+| 8   | Caching and hardening                                   | planned |
+| 9   | End-to-end tests, containers, and release documentation | planned |
 
 ## M0 - Planning and architecture
 
@@ -27,7 +27,7 @@ Exit criteria: documents reviewed and approved.
 - pnpm workspace, root scripts, shared strict `tsconfig`, ESLint, Prettier, `.gitignore`, `.nvmrc`.
 - `docker-compose.yml` with PostgreSQL and Redis.
 - `apps/api`: Express app with validated environment config, structured logging, security headers, central error handler, 404 handler, and a health endpoint that checks database and Redis connectivity.
-- `packages/db`: Prisma setup with an initial migration and exported client.
+- `packages/db`: Prisma setup and exported client. No migration yet: there are no tables until M2.
 - `apps/web`: Next.js App Router with Tailwind, base layout, and the `/api` rewrite.
 - GitHub Actions workflow: install, lint, typecheck, test, build.
 - README with setup instructions.
@@ -36,7 +36,8 @@ Exit criteria: a fresh clone starts with documented commands; health endpoint re
 
 ## M2 - Database and product catalog
 
-- Schema: `Category`, `Product`, `InventoryItem`. Seed script with realistic data.
+- Schema: `Category`, `Product`, `InventoryItem`, with the first migration. Seed script with realistic data.
+- A separate test database so integration tests do not touch development data.
 - API: list products (pagination, category filter, search, sort), product detail by slug, list categories.
 - Web: catalog page with filters and pagination, product detail page, loading and empty states.
 - Integration tests for catalog endpoints.

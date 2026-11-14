@@ -59,6 +59,7 @@ cartforge/
 │   └── api/
 │       ├── src/
 │       │   ├── modules/
+│       │   │   ├── health/
 │       │   │   ├── auth/
 │       │   │   ├── users/
 │       │   │   ├── products/
@@ -124,15 +125,16 @@ A module omits any file it does not need.
 
 ### 4.2 Module responsibilities
 
-| Module | Responsibility |
-| --- | --- |
-| auth | Registration, login, logout, session creation, validation, expiry, and revocation |
-| users | Current user profile, admin user listing |
-| products | Catalog queries (list, filter, search, detail), categories, admin product CRUD |
-| inventory | Stock levels, reservations, release, admin stock adjustments |
-| cart | Per-user cart contents and totals |
-| orders | Checkout, order lifecycle, order history, admin order management |
-| payments | Stripe PaymentIntent creation, webhook verification and handling |
+| Module    | Responsibility                                                                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| auth      | Registration, login, logout, session creation, validation, expiry, and revocation                                                                 |
+| users     | Current user profile, admin user listing                                                                                                          |
+| products  | Catalog queries (list, filter, search, detail), categories, admin product CRUD                                                                    |
+| inventory | Stock levels, reservations, release, admin stock adjustments                                                                                      |
+| cart      | Per-user cart contents and totals                                                                                                                 |
+| orders    | Checkout, order lifecycle, order history, admin order management                                                                                  |
+| payments  | Stripe PaymentIntent creation, webhook verification and handling                                                                                  |
+| health    | Liveness and dependency checks for PostgreSQL and Redis. Served at `/health` for infrastructure probes and `/api/v1/health` through the web proxy |
 
 ### 4.3 API conventions
 
@@ -182,15 +184,15 @@ Authentication uses opaque, server-side sessions stored in PostgreSQL. There are
 
 **Cookie configuration**
 
-| Attribute | Value | Reason |
-| --- | --- | --- |
-| Name | `__Host-cartforge_session` in production | The `__Host-` prefix makes the browser require `Secure`, `Path=/`, and no `Domain`, which prevents subdomains from overwriting the cookie |
-| `HttpOnly` | set | JavaScript cannot read the token |
-| `Secure` | set in production | Sent over HTTPS only |
-| `SameSite` | `Lax` | Not sent on cross-site subrequests or cross-site form posts |
-| `Path` | `/` | |
-| `Domain` | not set | Host-only cookie |
-| `Max-Age` | idle timeout | |
+| Attribute  | Value                                    | Reason                                                                                                                                    |
+| ---------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Name       | `__Host-cartforge_session` in production | The `__Host-` prefix makes the browser require `Secure`, `Path=/`, and no `Domain`, which prevents subdomains from overwriting the cookie |
+| `HttpOnly` | set                                      | JavaScript cannot read the token                                                                                                          |
+| `Secure`   | set in production                        | Sent over HTTPS only                                                                                                                      |
+| `SameSite` | `Lax`                                    | Not sent on cross-site subrequests or cross-site form posts                                                                               |
+| `Path`     | `/`                                      |                                                                                                                                           |
+| `Domain`   | not set                                  | Host-only cookie                                                                                                                          |
+| `Max-Age`  | idle timeout                             |                                                                                                                                           |
 
 For local development over plain HTTP, `Secure` and the `__Host-` prefix are disabled through configuration. Production configuration validation rejects a non-secure cookie.
 
@@ -223,18 +225,18 @@ Redis is not a source of truth. The API must behave correctly, only slower, when
 
 Proposed entities. Final field lists are settled in the milestone that introduces each table.
 
-| Entity | Key fields | Notes |
-| --- | --- | --- |
-| User | email (unique), passwordHash, name, role | |
-| Session | userId, tokenHash (unique), createdAt, lastUsedAt, expiresAt | Stores only the hash of the session token; deleted on logout or revocation |
-| Category | name, slug (unique) | |
-| Product | name, slug (unique), description, pricePaise, imageUrl, isActive, categoryId | Soft-deactivated, never hard-deleted once ordered |
-| InventoryItem | productId (unique), quantityOnHand, quantityReserved | Available = onHand - reserved |
-| CartItem | userId, productId, quantity | Unique on (userId, productId) |
-| Order | userId, status, totalPaise, shipping address fields, reservationExpiresAt | |
-| OrderItem | orderId, productId, productName, unitPricePaise, quantity | Snapshot of name and price at purchase |
-| Payment | orderId (unique), stripePaymentIntentId (unique), status, amountPaise | |
-| ProcessedStripeEvent | stripeEventId (unique), type, processedAt | Webhook idempotency |
+| Entity               | Key fields                                                                   | Notes                                                                      |
+| -------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| User                 | email (unique), passwordHash, name, role                                     |                                                                            |
+| Session              | userId, tokenHash (unique), createdAt, lastUsedAt, expiresAt                 | Stores only the hash of the session token; deleted on logout or revocation |
+| Category             | name, slug (unique)                                                          |                                                                            |
+| Product              | name, slug (unique), description, pricePaise, imageUrl, isActive, categoryId | Soft-deactivated, never hard-deleted once ordered                          |
+| InventoryItem        | productId (unique), quantityOnHand, quantityReserved                         | Available = onHand - reserved                                              |
+| CartItem             | userId, productId, quantity                                                  | Unique on (userId, productId)                                              |
+| Order                | userId, status, totalPaise, shipping address fields, reservationExpiresAt    |                                                                            |
+| OrderItem            | orderId, productId, productName, unitPricePaise, quantity                    | Snapshot of name and price at purchase                                     |
+| Payment              | orderId (unique), stripePaymentIntentId (unique), status, amountPaise        |                                                                            |
+| ProcessedStripeEvent | stripeEventId (unique), type, processedAt                                    | Webhook idempotency                                                        |
 
 Rules:
 
@@ -287,30 +289,30 @@ Transitions are enforced in the orders service. Invalid transitions are rejected
 
 ## 8. Testing
 
-| Level | Tool | Scope |
-| --- | --- | --- |
-| Unit | Vitest | Pure logic: totals, status transitions, schema validation |
+| Level       | Tool               | Scope                                                                                                           |
+| ----------- | ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Unit        | Vitest             | Pure logic: totals, status transitions, schema validation                                                       |
 | Integration | Vitest + Supertest | HTTP endpoints against a real PostgreSQL test database, including auth, authorization, and concurrency on stock |
-| End-to-end | Playwright | Critical journeys: register, browse, add to cart, check out with a Stripe test card, see the order |
+| End-to-end  | Playwright         | Critical journeys: register, browse, add to cart, check out with a Stripe test card, see the order              |
 
 Integration tests do not mock Prisma. Stripe is exercised with test-mode keys or signed fixture webhooks.
 
 ## 9. Local development and CI
 
 - `docker-compose.yml` runs PostgreSQL and Redis for local development. The apps run on the host with hot reload.
-- Each app has a `.env.example`; real `.env` files are git-ignored.
+- Configuration lives in two git-ignored files, each with a committed example: the root `.env` (read by Docker Compose, the API, and the Prisma CLI, which must agree on the database credentials) and `apps/web/.env.local` (the web app's `API_URL`).
 - GitHub Actions runs on every push and pull request: install, lint, typecheck, unit and integration tests (with PostgreSQL and Redis service containers), and build. Playwright runs in CI once the end-to-end milestone lands.
 - Production Dockerfiles for `web` and `api` are added in the final milestone.
 
 ## 10. Versions
 
-Node.js uses the active LTS release, pinned through `engines` and `.nvmrc`. Framework and library versions are the current stable releases at the time each is installed, verified against official documentation for mutual compatibility and locked in `pnpm-lock.yaml`. This document deliberately lists no version numbers; `package.json` files are the source of truth.
+Node.js uses an LTS release: `.nvmrc` pins the version used for development and CI, and `engines` sets the minimum supported version. Framework and library versions are the current stable releases at the time each is installed, verified against official documentation for mutual compatibility and locked in `pnpm-lock.yaml`. This document deliberately lists no version numbers; `package.json` files are the source of truth.
 
 ## 11. Open decisions
 
-| Decision | Current leaning | Decided in |
-| --- | --- | --- |
-| Product images | URL field pointing at seeded or external images; no upload pipeline | M2 |
-| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process | M6 |
-| Stripe integration surface | PaymentIntents with Stripe Elements | M7 |
-| `packages/shared` | Create only if Zod schemas are needed by both apps | When first needed |
+| Decision                     | Current leaning                                                             | Decided in        |
+| ---------------------------- | --------------------------------------------------------------------------- | ----------------- |
+| Product images               | URL field pointing at seeded or external images; no upload pipeline         | M2                |
+| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process | M6                |
+| Stripe integration surface   | PaymentIntents with Stripe Elements                                         | M7                |
+| `packages/shared`            | Create only if Zod schemas are needed by both apps                          | When first needed |
