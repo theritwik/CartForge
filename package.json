@@ -1,0 +1,29 @@
+{
+  "name": "cartforge",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "postinstall": "pnpm --filter @cartforge/db build",
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "services:up": "docker compose up -d --wait",
+    "services:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.6",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.10.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2"
+  }
+}
