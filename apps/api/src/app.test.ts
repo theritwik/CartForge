@@ -37,6 +37,16 @@ describe('GET /health', () => {
   });
 });
 
+describe('test database isolation', () => {
+  it('connects to the test database, not the development database', async () => {
+    const [connection] = await prisma.$queryRaw<
+      { name: string }[]
+    >`SELECT current_database() AS name`;
+
+    expect(connection?.name).toMatch(/_test$/);
+  });
+});
+
 describe('unknown routes', () => {
   it('returns the standard error envelope', async () => {
     const response = await request(app).get('/api/v1/does-not-exist');

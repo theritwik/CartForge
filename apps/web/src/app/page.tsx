@@ -40,7 +40,8 @@ const stack = [
 const milestones = [
   { name: 'Planning and architecture', done: true },
   { name: 'Monorepo foundation', done: true },
-  { name: 'Database and product catalog', done: false },
+  { name: 'Database foundation', done: true },
+  { name: 'Product catalog', done: false },
   { name: 'Authentication and users', done: false },
   { name: 'Admin product and inventory management', done: false },
   { name: 'Cart', done: false },
@@ -57,14 +58,14 @@ export default function HomePage() {
   return (
     <>
       <section className="mx-auto max-w-6xl px-4 pt-16 pb-12 sm:px-6 sm:pt-24 sm:pb-16">
-        <p className="text-accent font-mono text-sm">In development · Milestone 1 of 9 complete</p>
+        <p className="text-accent font-mono text-sm">In development · Milestone 2 of 10 complete</p>
         <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
           A full-stack e-commerce application, built one milestone at a time.
         </h1>
         <p className="text-muted mt-6 max-w-2xl text-lg leading-relaxed">
           CartForge is a storefront and admin application covering the catalog, cart, checkout,
-          payments, and order management. The project foundation is in place. Store features are
-          added milestone by milestone.
+          payments, and order management. The project foundation and database schema are in place.
+          Store features are added milestone by milestone.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <a
