@@ -8,7 +8,7 @@ Milestones are built in order, one at a time. A milestone is complete only when 
 | 1   | Monorepo foundation                                     | done    |
 | 2   | Database foundation                                     | done    |
 | 3   | Product catalog                                         | done    |
-| 4   | Authentication and users                                | planned |
+| 4   | Authentication and users                                | done    |
 | 5   | Admin product and inventory management                  | planned |
 | 6   | Cart                                                    | planned |
 | 7   | Checkout and orders                                     | planned |
@@ -57,15 +57,18 @@ Exit criteria: seeded catalog is browsable in the web app; query parameter valid
 
 ## M4 - Authentication and users
 
-- API: register, login, logout, log out of all devices, change password, current user. Opaque database-backed sessions in an httpOnly cookie with idle and absolute expiry. Authentication, role, and CSRF origin-check middleware. Redis-backed rate limiting on auth endpoints.
-- Seed an administrator account for development.
-- Web: register and login pages, session-aware header, protected account page.
-- Tests: credential handling, session expiry (idle and absolute), revocation on logout and password change, cookie attributes, rejection of cross-origin state-changing requests, access to protected routes.
+- API: register, login, logout, log out of all devices, current user, and an administrator-only user list. Opaque database-backed sessions in an httpOnly cookie with idle and absolute expiry. Authentication and role middleware, CSRF origin check, and Redis-backed rate limiting on login and registration.
+- `pnpm admin:create` creates or promotes an administrator from environment variables. Registration always creates a customer.
+- Web: sign-in and registration pages with validation feedback, account page, and header account navigation with sign-out.
+- Tests: credential handling, session expiry (idle and absolute), revocation on logout, cookie attributes, rejection of cross-origin state-changing requests, access to protected routes, and customer versus administrator permissions.
 
 Exit criteria: a user can register, log in, stay logged in while the session is active, and log out; a revoked or expired session is rejected on the next request; protected endpoints reject anonymous and wrong-role requests.
 
+Not done in this milestone: changing a password (and revoking the account's other sessions when it changes). It is listed under M5.
+
 ## M5 - Admin product and inventory management
 
+- API: change password, revoking the account's other sessions.
 - API: admin product create, update, archive; category management; stock adjustment.
 - Web: admin area for products and stock, restricted to `ADMIN`.
 - Tests: authorization on every admin endpoint, validation, stock adjustment rules.

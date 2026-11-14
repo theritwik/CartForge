@@ -9,7 +9,7 @@ function SearchFields({ query }: { query: string }) {
     <Form
       action="/products"
       role="search"
-      className="order-3 flex w-full gap-2 sm:order-none sm:ml-auto sm:w-80"
+      className="order-last flex w-full gap-2 md:order-none md:w-72"
     >
       <label htmlFor="site-search" className="sr-only">
         Search products

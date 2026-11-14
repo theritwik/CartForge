@@ -1,21 +1,10 @@
 import { z } from 'zod';
+import { wholeNumber } from '../../lib/query-params.js';
 
 export const DEFAULT_PAGE_SIZE = 12;
 export const MAX_PAGE_SIZE = 48;
 const MAX_PAGE = 10_000;
 const MAX_PAISE = 2_147_483_647;
-
-/**
- * A whole number written in plain decimal digits. Number() alone would also
- * accept forms such as "1e3", "0x10", and " 5 ".
- */
-function wholeNumber(min: number, max: number) {
-  return z
-    .string()
-    .regex(/^\d{1,10}$/, 'Must be a whole number')
-    .transform(Number)
-    .pipe(z.number().min(min).max(max));
-}
 
 export const slugSchema = z
   .string()

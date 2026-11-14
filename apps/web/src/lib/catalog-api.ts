@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { z } from 'zod';
+import { apiUrl } from './api-url';
 
 const imageSchema = z.object({ url: z.string(), altText: z.string() });
 
@@ -58,12 +59,7 @@ export interface ProductListQuery {
 
 /** Fetches from the API server-to-server. Returns null for a 404 and throws for other failures. */
 async function fetchFromApi(path: string, query: object = {}): Promise<unknown> {
-  const baseUrl = process.env.API_URL;
-  if (!baseUrl) {
-    throw new Error('API_URL is not set.');
-  }
-
-  const url = new URL(`/api/v1${path}`, baseUrl);
+  const url = apiUrl(path);
   for (const [name, value] of Object.entries(query)) {
     if (value !== undefined) {
       url.searchParams.set(name, String(value));
