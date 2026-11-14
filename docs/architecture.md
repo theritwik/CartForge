@@ -161,8 +161,11 @@ Authentication uses opaque, server-side sessions stored in PostgreSQL. There are
 
 **Passwords**
 
-- Hashed with Argon2id, using parameters at or above current OWASP guidance. Parameters live in configuration so they can be raised later; a hash made with older parameters is rehashed on the next successful login.
-- Login failures return one generic message regardless of whether the email exists. Login and registration are rate limited per IP and per email.
+- Hashed with Argon2id using OWASP's recommended configuration (19 MiB memory, 2 iterations, 1 thread). The parameters are constants in the auth module; a hash made with older parameters is rehashed on the next successful login.
+- Passwords are 10 to 128 characters. The upper bound keeps hashing cost predictable.
+- Login failures return one generic message regardless of whether the email exists, and an unknown email is checked against a decoy hash so it takes as long to reject as a wrong password.
+- Rate limits (fixed windows in Redis): login is limited to 5 attempts per email and 30 per IP address every 15 minutes, and a successful login clears the email counter; registration is limited to 10 per IP address per hour. If Redis is unreachable the limiter allows the request and logs the failure, so a Redis outage does not lock everyone out.
+- Registration answers 409 for an email that is already registered. Without email verification there is no way to hide this from the person registering; the registration rate limit bounds its use for probing.
 
 **Sessions**
 
@@ -184,7 +187,7 @@ Authentication uses opaque, server-side sessions stored in PostgreSQL. There are
 
 - Logout deletes the session row and clears the cookie. The token is useless immediately.
 - "Log out of all devices" deletes every session for the user.
-- A password change deletes all of the user's other sessions.
+- A password change will delete all of the user's other sessions once the change-password endpoint is built (M5).
 - Because every request checks the database, revocation takes effect on the next request with no token-lifetime window.
 
 **Cookie configuration**
@@ -199,7 +202,7 @@ Authentication uses opaque, server-side sessions stored in PostgreSQL. There are
 | `Domain`   | not set                                  | Host-only cookie                                                                                                                          |
 | `Max-Age`  | idle timeout                             |                                                                                                                                           |
 
-For local development over plain HTTP, `Secure` and the `__Host-` prefix are disabled through configuration. Production configuration validation rejects a non-secure cookie.
+`Secure` and the `__Host-` prefix are applied whenever `NODE_ENV` is `production` and only then, because plain HTTP in development cannot use them. There is no separate switch, so a production deployment cannot be configured with a non-secure cookie.
 
 **CSRF protection**
 
@@ -207,7 +210,7 @@ Cookie-based sessions are sent automatically by the browser, so state-changing r
 
 1. `SameSite=Lax` stops the cookie from being attached to cross-site `POST`, `PUT`, `PATCH`, and `DELETE` requests.
 2. Safe methods (`GET`, `HEAD`, `OPTIONS`) never change state.
-3. Middleware on every non-safe request verifies that the `Origin` header (falling back to `Referer`) matches the configured web origin, and rejects the request otherwise. This also covers login and registration, preventing login CSRF.
+3. Middleware on every non-safe request under `/api` verifies that the `Origin` header (falling back to `Referer`) matches `WEB_ORIGIN`, and rejects the request with 403 otherwise, including when both headers are absent. This also covers login and registration, preventing login CSRF.
 4. Mutating endpoints accept only `application/json`. A cross-site HTML form cannot send that content type without a CORS preflight, and CORS allows only the web origin.
 
 The Stripe webhook is exempt from the origin check: it carries no session cookie and is authenticated by its signature instead.
@@ -216,6 +219,14 @@ The Stripe webhook is exempt from the origin check: it carries no session cookie
 
 - Roles: `CUSTOMER` and `ADMIN`. Role checks happen in middleware; ownership checks (a user may only read their own orders) happen in services.
 - The role is read from the user row loaded with the session, so a role change applies on the next request.
+- Registration never accepts a role. Administrators are created or promoted only by the `pnpm admin:create` script, which reads the name, email, and password from environment variables.
+- Responses select an explicit list of public user fields; the password hash is never read into a response.
+
+**Web app**
+
+- Sign-in, registration, and sign-out are `fetch` calls from the browser to the same-origin `/api` proxy, so the API sets and clears the cookie directly. The token is never available to JavaScript and nothing is kept in `localStorage`.
+- Server Components find the signed-in user by forwarding the session cookie to `GET /api/v1/users/me`. The web app does not validate sessions itself.
+- The API trusts `X-Forwarded-For` from `TRUST_PROXY_HOPS` proxies (1 when the web app proxies to it) so rate limits see the real client address. With a non-zero value the API must be reachable only through that proxy; a client that could connect to it directly could forge the header.
 
 ### 4.5 Redis usage
 

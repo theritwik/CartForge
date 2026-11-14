@@ -2,15 +2,17 @@
 
 A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL, and Redis, organised as a pnpm monorepo.
 
-**Status:** Milestones 1 to 3 are complete: project foundation, database, and a browsable product catalog. Accounts, cart, checkout, and payments are not built yet. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
+**Status:** Milestones 1 to 4 are complete: project foundation, database, a browsable product catalog, and user accounts. Cart, checkout, payments, and the admin area are not built yet. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
 
 ## What works today
 
 - Storefront: homepage, product listing with search, category and price filters, sorting and pagination, category pages, and product detail pages with an image gallery and stock status.
+- Accounts: registration, sign-in, sign-out, sign-out of all devices, and an account page, using database-backed sessions in an HttpOnly cookie.
 - Catalog API: product list, product detail, and categories, validated with Zod and limited to published products.
+- Auth API: Argon2id password hashing, session expiry and revocation, role checks for customers and administrators, CSRF protection, and login rate limiting.
 - PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed.
 - API health endpoint that checks PostgreSQL and Redis, and a same-origin `/api/*` proxy from the web app.
-- Docker Compose services, linting, formatting, type checking, database and API integration tests, and a CI workflow.
+- Docker Compose services, linting, formatting, type checking, database, API, and web tests, and a CI workflow.
 
 Product images are labelled placeholder drawings, not product photography.
 
@@ -32,20 +34,26 @@ Product images are labelled placeholder drawings, not product photography.
 │   │   ├── src/
 │   │   │   ├── config/              environment validation
 │   │   │   ├── lib/                 logger, Prisma client, Redis client, error class
-│   │   │   ├── middleware/          not-found and error handlers
+│   │   │   ├── middleware/          authentication, CSRF origin check, not-found and error handlers
 │   │   │   ├── modules/
+│   │   │   │   ├── auth/            registration, login, logout, sessions, password hashing
 │   │   │   │   ├── health/          health endpoint
-│   │   │   │   └── products/        catalog routes, controller, service, schemas, tests
+│   │   │   │   ├── products/        catalog routes, controller, service, schemas, tests
+│   │   │   │   └── users/           current user and administrator user list
 │   │   │   ├── app.ts               Express app assembly
 │   │   │   └── server.ts            process entry point
-│   │   └── tests/                   test database setup
+│   │   ├── scripts/                 create-admin.ts
+│   │   └── tests/                   test database setup and auth test helpers
 │   └── web/                         Next.js application
 │       ├── public/images/products/  placeholder product images
 │       ├── src/app/                 root layout, not-found page, global styles
 │       ├── src/app/(shop)/          homepage, products, product detail, categories
-│       ├── src/components/          header, footer
+│       ├── src/app/(auth)/          sign-in and registration pages
+│       ├── src/app/account/         account page
+│       ├── src/components/          header, footer, search form, account navigation
+│       ├── src/components/auth/     sign-in and registration forms, sign-out button
 │       ├── src/components/catalog/  product card and grid, filters, sort, pagination, gallery
-│       ├── src/lib/                 catalog API client, URL filter parsing, price formatting
+│       ├── src/lib/                 API clients, current user lookup, form schemas, URL filter parsing
 │       └── next.config.ts           API proxy and environment validation
 ├── packages/
 │   └── db/                          Prisma schema, migrations, seed, client factory
@@ -83,10 +91,10 @@ pnpm dev
 
 ## Configuration
 
-| File                  | Read by                                    | Variables                                                                                                         |
-| --------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `.env`                | Docker Compose, the API, Prisma CLI, tests | `POSTGRES_*`, `REDIS_PORT`, `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `DATABASE_URL`, `REDIS_URL`, `TEST_DATABASE_URL` |
-| `apps/web/.env.local` | The web app                                | `API_URL`                                                                                                         |
+| File                  | Read by                                    | Variables                                                                                                                                           |
+| --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.env`                | Docker Compose, the API, Prisma CLI, tests | `POSTGRES_*`, `REDIS_PORT`, `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `WEB_ORIGIN`, `TRUST_PROXY_HOPS`, `DATABASE_URL`, `REDIS_URL`, `TEST_DATABASE_URL` |
+| `apps/web/.env.local` | The web app                                | `API_URL`                                                                                                                                           |
 
 The API and the web app validate their configuration at startup and refuse to start if it is invalid. The values in the example files are for local development only.
 
@@ -103,8 +111,36 @@ Run from the repository root.
 | `pnpm test`         | Run database, API, and web unit tests (requires PostgreSQL and Redis running) |
 | `pnpm db:migrate`   | Create and apply migrations on the development database                       |
 | `pnpm db:seed`      | Load the development catalog                                                  |
+| `pnpm admin:create` | Create or promote an administrator (see below)                                |
 | `pnpm format`       | Format with Prettier                                                          |
 | `pnpm format:check` | Check formatting                                                              |
+
+## Accounts and authentication
+
+| Endpoint                       | Access        | Description                           |
+| ------------------------------ | ------------- | ------------------------------------- |
+| `POST /api/v1/auth/register`   | Public        | Create a customer account and sign in |
+| `POST /api/v1/auth/login`      | Public        | Sign in                               |
+| `POST /api/v1/auth/logout`     | Public        | End the current session               |
+| `POST /api/v1/auth/logout-all` | Signed in     | End every session of the account      |
+| `GET /api/v1/users/me`         | Signed in     | The signed-in user                    |
+| `GET /api/v1/users`            | Administrator | Paginated list of users               |
+
+Sessions are opaque random tokens kept in an HttpOnly cookie; only their SHA-256 hash is stored. State-changing requests must come from the web app's origin (`WEB_ORIGIN`), so when calling the API directly, send an `Origin` header:
+
+```bash
+curl -i -X POST http://localhost:4000/api/v1/auth/login \
+  -H "Origin: http://localhost:3000" -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"your password"}'
+```
+
+Registration always creates a customer. To create an administrator, or promote an existing account, run:
+
+```bash
+pnpm admin:create
+```
+
+It asks for a name, an email, and a password. The password is typed at a hidden prompt and is not accepted as an argument or environment variable, so it is not saved in shell history. For scripted use, set `ADMIN_NAME` and `ADMIN_EMAIL` and pipe the password in on standard input.
 
 ## Tests and the test database
 

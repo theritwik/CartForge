@@ -30,6 +30,7 @@ Run from the repository root. Node.js 24 (`.nvmrc`), pnpm 10.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm format:check`, `pnpm build`
 - `pnpm db:migrate` - create and apply a migration from schema changes (development database)
 - `pnpm db:seed` - load the development catalog; safe to run repeatedly
+- `pnpm admin:create` - create or promote an administrator; prompts for the password (never pass it as an argument or environment variable)
 - `pnpm --filter @cartforge/db build` - regenerate and rebuild the Prisma client after schema changes
 
 Before writing Next.js code, read `apps/web/AGENTS.md` and the bundled docs it points to; Next.js 16 differs from older versions.
@@ -85,6 +86,8 @@ Do not push, deploy, delete important files, or run destructive operations (incl
 
 - The currency is INR. Money is stored and computed as integer paise (minor currency units). Never floats.
 - Authentication uses opaque, database-backed sessions in an httpOnly cookie. No JWTs. Only a hash of the session token is stored.
+- Protect routes with `requireAuth` and `requireRole` from `middleware/authenticate.ts`. Return users only through `publicUserSelect`. Roles are never accepted from request input.
+- State-changing API requests must carry the web app's `Origin`; API tests send it with the `post` helper in `apps/api/tests/auth-helpers.ts`.
 - Stock changes and order creation run inside database transactions.
 - An order is marked paid only by a verified Stripe webhook, never by a client request.
 - Order items snapshot the product name and unit price at purchase time and are never updated.

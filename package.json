@@ -16,6 +16,7 @@
     "format:check": "prettier --check .",
     "db:migrate": "pnpm --filter @cartforge/db migrate",
     "db:seed": "pnpm --filter @cartforge/db seed",
+    "admin:create": "pnpm --filter @cartforge/api admin:create",
     "services:up": "docker compose up -d --wait",
     "services:down": "docker compose down"
   },
