@@ -2,13 +2,14 @@
 
 A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL, and Redis, organised as a pnpm monorepo.
 
-**Status:** Milestones 1 to 5 are complete: project foundation, database, a browsable product catalog, user accounts, and a persistent shopping cart. Checkout, payments, and the admin area are not built yet. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
+**Status:** Milestones 1 to 6 are complete: project foundation, database, a browsable product catalog, user accounts, a persistent shopping cart, and checkout with order management. Online payment and the admin area are not built yet, so orders stay unpaid and expire. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
 
 ## What works today
 
 - Storefront: homepage, product listing with search, category and price filters, sorting and pagination, category pages, and product detail pages with an image gallery and stock status.
 - Accounts: registration, sign-in, sign-out, sign-out of all devices, password change, and an account page, using database-backed sessions in an HttpOnly cookie.
 - Cart: add from product pages and listings, change quantities, remove items, and clear the cart. The cart is stored in PostgreSQL per account, so it follows the customer across devices.
+- Orders: checkout with a shipping address, stock reserved for 30 minutes, order history, order detail with status, and cancellation. Reservations that run out are released automatically.
 - Catalog API: product list, product detail, and categories, validated with Zod and limited to published products.
 - Auth API: Argon2id password hashing, session expiry and revocation, role checks for customers and administrators, CSRF protection, and login rate limiting.
 - PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed.
@@ -40,6 +41,8 @@ Product images are labelled placeholder drawings, not product photography.
 │   │   │   │   ├── auth/            registration, login, logout, sessions, password hashing
 │   │   │   │   ├── cart/            cart routes, controller, service, schemas, tests
 │   │   │   │   ├── health/          health endpoint
+│   │   │   │   ├── inventory/       stock reservation, release, and sale
+│   │   │   │   ├── orders/          checkout, order history, cancellation, expiry
 │   │   │   │   ├── products/        catalog routes, controller, service, schemas, tests
 │   │   │   │   └── users/           current user and administrator user list
 │   │   │   ├── app.ts               Express app assembly
@@ -53,9 +56,13 @@ Product images are labelled placeholder drawings, not product photography.
 │       ├── src/app/(auth)/          sign-in and registration pages
 │       ├── src/app/account/         account page
 │       ├── src/app/cart/            cart page
+│       ├── src/app/checkout/        checkout page
+│       ├── src/app/orders/          order history and order detail pages
 │       ├── src/components/          header, footer, search form, account navigation
 │       ├── src/components/auth/     sign-in, registration, and password forms, sign-out button
 │       ├── src/components/cart/     add-to-cart button, cart rows, clear-cart control, header cart link
+│       ├── src/components/checkout/ checkout form
+│       ├── src/components/orders/   status badge, progress tracker, cancel control
 │       ├── src/components/catalog/  product card and grid, filters, sort, pagination, gallery
 │       ├── src/lib/                 API clients, current user lookup, form schemas, URL filter parsing
 │       └── next.config.ts           API proxy and environment validation
@@ -197,6 +204,44 @@ A cart holds at most 10 of one product. Adding to the cart does not reserve stoc
 | `OUT_OF_STOCK`            | 409    | No units are available                          |
 | `INSUFFICIENT_STOCK`      | 409    | Fewer units are available than requested        |
 | `QUANTITY_LIMIT_EXCEEDED` | 409    | The cart would hold more than 10 of the product |
+
+## Orders
+
+All order endpoints require a signed-in user and only ever return that user's orders.
+
+| Endpoint                              | Description                                                |
+| ------------------------------------- | ---------------------------------------------------------- |
+| `POST /api/v1/orders`                 | Create an order from the cart and reserve its stock        |
+| `GET /api/v1/orders`                  | The customer's orders, newest first, paginated             |
+| `GET /api/v1/orders/:orderId`         | One order with its items and shipping address              |
+| `POST /api/v1/orders/:orderId/cancel` | Cancel an order that is awaiting payment and release stock |
+
+Checkout needs an `Idempotency-Key` header (a UUID chosen by the client) and the total the customer was shown:
+
+```bash
+curl -X POST http://localhost:4000/api/v1/orders \
+  -H "Origin: http://localhost:3000" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f" -b cookies.txt \
+  -d '{
+    "expectedTotalPaise": 239800,
+    "shippingAddress": {
+      "name": "Asha Rao", "phone": "9876543210", "addressLine1": "12 MG Road",
+      "city": "Bengaluru", "state": "Karnataka", "postalCode": "560001"
+    }
+  }'
+```
+
+It returns `201` with the order, or `200` with the same order if the key was already used. The order starts as `PENDING_PAYMENT` and holds its stock for 30 minutes. Because online payment is not built yet, orders cannot be paid: they expire, or the customer cancels them, and the stock is returned.
+
+| Error code              | Status | Meaning                                                                |
+| ----------------------- | ------ | ---------------------------------------------------------------------- |
+| `CART_EMPTY`            | 409    | There is nothing to order                                              |
+| `ITEMS_UNAVAILABLE`     | 409    | An item is no longer sold or lacks stock; nothing was reserved         |
+| `CART_CHANGED`          | 409    | The server's total differs from `expectedTotalPaise`; no order created |
+| `ORDER_NOT_CANCELLABLE` | 409    | The order is no longer awaiting payment                                |
+| `ORDER_NOT_FOUND`       | 404    | No such order belongs to the caller                                    |
+
+Order statuses are `PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `EXPIRED`, and `REFUNDED`. See [docs/architecture.md](docs/architecture.md) for the lifecycle and the concurrency design.
 
 ## Tests and the test database
 

@@ -2,7 +2,7 @@
 
 PostgreSQL 17, managed with Prisma. The schema is defined in `packages/db/prisma/schema.prisma` and applied through migrations in `packages/db/prisma/migrations`.
 
-The tables exist as of Milestone 2. The API features that read and write them (catalog, authentication, cart, checkout, payments) are built in later milestones.
+The tables were created in Milestone 2. The catalog, accounts, cart, and orders use them; the `payments` table is not written to until the payments milestone.
 
 ## Relationships
 
@@ -69,6 +69,7 @@ erDiagram
     Order {
         uuid id PK
         uuid user_id FK
+        uuid idempotency_key
         order_status status
         int total_paise
         text shipping_fields
@@ -113,14 +114,14 @@ erDiagram
 
 ## Enums
 
-| Enum             | Values                                                                     | Default           |
-| ---------------- | -------------------------------------------------------------------------- | ----------------- |
-| `user_role`      | `CUSTOMER`, `ADMIN`                                                        | `CUSTOMER`        |
-| `product_status` | `DRAFT`, `ACTIVE`, `ARCHIVED`                                              | `DRAFT`           |
-| `order_status`   | `PENDING_PAYMENT`, `PAID`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `REFUNDED` | `PENDING_PAYMENT` |
-| `payment_status` | `PENDING`, `SUCCEEDED`, `FAILED`, `REFUNDED`                               | `PENDING`         |
+| Enum             | Values                                                                                              | Default           |
+| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------- |
+| `user_role`      | `CUSTOMER`, `ADMIN`                                                                                 | `CUSTOMER`        |
+| `product_status` | `DRAFT`, `ACTIVE`, `ARCHIVED`                                                                       | `DRAFT`           |
+| `order_status`   | `PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `EXPIRED`, `REFUNDED` | `PENDING_PAYMENT` |
+| `payment_status` | `PENDING`, `SUCCEEDED`, `FAILED`, `REFUNDED`                                                        | `PENDING`         |
 
-Allowed order status transitions are described in `architecture.md` and will be enforced in the orders service.
+Order status transitions are described in `architecture.md` and enforced in the orders service.
 
 ## Tables
 
@@ -154,7 +155,7 @@ One cart per user (`carts.user_id` is unique). A product appears at most once pe
 
 ### orders
 
-Belongs to a user. Holds the status, `total_paise`, the shipping address, and `reservation_expires_at` while the order is holding stock. Indexes: `(user_id, created_at)` for order history and `(status, reservation_expires_at)` for finding expired reservations.
+Belongs to a user. Holds the status, `total_paise`, the shipping address, and `reservation_expires_at` while the order is holding stock. `idempotency_key` is chosen by the client for one checkout attempt and is unique per user, so a repeated request finds the order it already created. Indexes: `(user_id, created_at)` for order history and `(status, reservation_expires_at)` for finding expired reservations.
 
 ### order_items
 
@@ -177,6 +178,13 @@ Prisma schema cannot express CHECK constraints or triggers. They are written by 
 | `pnpm --filter @cartforge/db exec prisma migrate status` | Show which migrations are applied                                   |
 
 After changing the schema, run `pnpm --filter @cartforge/db build` so the API sees the regenerated client.
+
+### Migration history
+
+| Migration        | Change                                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `init`           | All tables, enums, indexes, CHECK constraints, and the order-item immutability trigger               |
+| `order_checkout` | `PROCESSING` and `EXPIRED` order statuses; `orders.idempotency_key` with a unique index per customer |
 
 ## Seed data
 

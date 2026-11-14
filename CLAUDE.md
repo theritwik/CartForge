@@ -88,7 +88,9 @@ Do not push, deploy, delete important files, or run destructive operations (incl
 - Authentication uses opaque, database-backed sessions in an httpOnly cookie. No JWTs. Only a hash of the session token is stored.
 - Protect routes with `requireAuth` and `requireRole` from `middleware/authenticate.ts`. Return users only through `publicUserSelect`. Roles are never accepted from request input.
 - State-changing API requests must carry the web app's `Origin`; API tests send it with the `post` helper in `apps/api/tests/auth-helpers.ts`.
-- Stock changes and order creation run inside database transactions.
+- Stock changes and order creation run inside database transactions. Change stock only through `reserveStock`, `releaseStock`, and `commitStock` in the inventory service, passing the caller's transaction; they update products in id order to avoid deadlocks.
+- Change an order's status with a conditional update on its current status (`updateMany` with the expected status in `where`), and release or commit stock only when that update changed a row.
+- Checkout requires an `Idempotency-Key` header and compares the client's `expectedTotalPaise` with the server's total. The client's figure is never used as the price.
 - Every write to a cart first locks the cart row (`lockCart` in the cart service). Adding to a cart never reserves stock. Stale cart items are flagged, not deleted.
 - Prisma's `upsert` is not safe for concurrent first inserts; use `createMany` with `skipDuplicates` when two requests may create the same row.
 - An order is marked paid only by a verified Stripe webhook, never by a client request.

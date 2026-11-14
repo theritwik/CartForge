@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ChangePasswordForm } from '@/components/auth/change-password-form';
 import { LogoutButton } from '@/components/auth/logout-button';
@@ -35,6 +36,12 @@ export default async function AccountPage() {
           </div>
         ))}
       </dl>
+
+      <p className="mt-6">
+        <Link href="/orders" className="text-sm font-medium underline underline-offset-4">
+          View your orders
+        </Link>
+      </p>
 
       <h2 className="mt-10 text-lg font-medium">Password</h2>
       <p className="text-muted mt-2 text-sm">

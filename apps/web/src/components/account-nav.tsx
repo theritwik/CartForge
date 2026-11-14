@@ -25,6 +25,9 @@ export async function AccountNav() {
       <CartLink itemCount={itemCount} />
       {user ? (
         <>
+          <Link href="/orders" className={`${linkClass} hidden sm:block`}>
+            Orders
+          </Link>
           <Link href="/account" className={linkClass}>
             Account
           </Link>

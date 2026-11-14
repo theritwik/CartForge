@@ -250,7 +250,7 @@ The schema is implemented in `packages/db` and documented in full, with a relati
 | ProductImage | productId, url, altText, position                                                                 | Position 0 is the primary image                                                     |
 | Cart         | userId (unique)                                                                                   | One cart per user                                                                   |
 | CartItem     | cartId, productId, quantity                                                                       | Unique on (cartId, productId)                                                       |
-| Order        | userId, status, totalPaise, shipping address fields, reservationExpiresAt                         |                                                                                     |
+| Order        | userId, idempotencyKey, status, totalPaise, shipping address fields, reservationExpiresAt         |                                                                                     |
 | OrderItem    | orderId, productId, productName, unitPricePaise, quantity                                         | Immutable snapshot of name and price at purchase                                    |
 | Payment      | orderId (unique), stripePaymentIntentId (unique), status, amountPaise                             |                                                                                     |
 
@@ -267,36 +267,62 @@ Rules:
 
 ### 6.1 Checkout and stock reservation
 
-1. The client submits the cart for checkout with a shipping address.
-2. In one transaction the orders service:
-   - reloads cart items and current prices,
-   - reserves stock with a conditional update per product (`reservedQuantity` increases only where `stockQuantity - reservedQuantity >= requested`),
-   - aborts with `INSUFFICIENT_STOCK` if any update affects zero rows,
-   - creates the `Order` (`PENDING_PAYMENT`) and its `OrderItem` snapshots.
-3. The payments service creates a Stripe PaymentIntent for the order total and returns its client secret.
+The client sends a shipping address, the total it displayed (`expectedTotalPaise`), and an `Idempotency-Key` header. In one transaction the orders service:
 
-The conditional update makes the database the arbiter of concurrent purchases, so two buyers cannot both reserve the last unit.
+1. Locks the customer's cart row. A customer's checkouts therefore run one at a time.
+2. Looks for an order with the same idempotency key and, if one exists, returns it. A repeated or double-submitted request never creates a second order.
+3. Reads the cart items and reserves stock for each with a conditional update: `reservedQuantity` increases only where the product is `ACTIVE` and `stockQuantity - reservedQuantity >= requested`. The same statement returns the product's current name and price.
+4. If any update matches no row, the transaction rolls back, releasing everything reserved so far, and the API answers `ITEMS_UNAVAILABLE` with the items that need attention.
+5. Compares the total at current prices with `expectedTotalPaise`. If they differ the transaction rolls back and the API answers `CART_CHANGED`, so a customer is never charged a total they did not see. The client's figure is used only for this comparison, never as the price.
+6. Creates the `Order` (`PENDING_PAYMENT`, reservation expiring in 30 minutes) and its `OrderItem` snapshots, and empties the cart. The order now holds those items, so the same cart cannot reserve them twice.
+
+**Concurrency**
+
+- The conditional update is a single atomic check-and-change. Of two transactions competing for the last unit, the second waits on the row lock, re-evaluates the condition after the first commits, and matches nothing. Available stock cannot go negative, and a CHECK constraint (`0 <= reserved <= stock`) backs this up.
+- Product rows are always updated in product-id order, in reservation, release, and sale alike. Transactions that touch the same products take their locks in the same sequence, so they cannot deadlock.
+- Lock order across tables is fixed: checkout takes cart, then products; cancellation, expiry, and payment confirmation take the order, then products. No path takes them in the opposite order.
+
+**Reservation expiry**
+
+- An unpaid order holds its stock for 30 minutes.
+- Expiry is a conditional status change (`PENDING_PAYMENT` and overdue, to `EXPIRED`) followed by the stock release, in one transaction. Whichever caller changes the status releases the stock; every other caller changes nothing. Stock is released exactly once however many sweeps or requests race.
+- A sweep in the API process runs every minute. Each order is expired in its own transaction, so a failure leaves that order for the next run and does not block the others. If the process stops, nothing is lost: overdue orders are found by status and timestamp on the next run.
+- An overdue order is also expired the moment its owner views it, so a customer never sees a stale "awaiting payment".
+
+**Cancellation.** A customer can cancel their own order while it is `PENDING_PAYMENT`. It uses the same conditional status change, then releases the stock.
 
 ### 6.2 Payment confirmation
+
+`confirmOrderPayment` in the orders service marks a `PENDING_PAYMENT` order `PAID` and converts its reservation into a sale by decreasing both `reservedQuantity` and `stockQuantity`, in one transaction. It returns false and changes nothing for an order in any other state, so a repeated notification is harmless. No HTTP route calls it. The payments milestone will call it from the Stripe webhook:
 
 1. The browser confirms the payment with Stripe Elements.
 2. Stripe sends `payment_intent.succeeded` (or `payment_intent.payment_failed`) to the webhook endpoint.
 3. The API verifies the signature against the raw request body, then records the event ID in a processed-events table. A duplicate ID is acknowledged and ignored.
-4. On success, in one transaction: order becomes `PAID`, the reservation is converted into a sale by decreasing both `reservedQuantity` and `stockQuantity`, and the user's cart is cleared.
-5. On failure or reservation expiry: order becomes `CANCELLED` and the reservation is released.
+4. On success the webhook calls `confirmOrderPayment`.
 
-The success page shown to the user is informational. Only the webhook changes order state.
+The success page shown to the user is informational. Only the webhook changes order state. What to do when a payment succeeds for an order that has already expired (refund, or re-reserve if stock allows) is decided in the payments milestone.
 
 ### 6.3 Order status
 
 ```
-PENDING_PAYMENT --> PAID --> SHIPPED --> DELIVERED
-       |              |
-       v              v
-   CANCELLED       REFUNDED
+PENDING_PAYMENT --> PAID --> PROCESSING --> SHIPPED --> DELIVERED
+   |        |         |           |
+   v        v         v           v
+CANCELLED EXPIRED  REFUNDED    REFUNDED
 ```
 
-Transitions are enforced in the orders service. Invalid transitions are rejected.
+| Status            | Meaning                                                  | Set by                  |
+| ----------------- | -------------------------------------------------------- | ----------------------- |
+| `PENDING_PAYMENT` | Order placed, stock reserved, awaiting payment           | Checkout                |
+| `PAID`            | Payment confirmed; reserved stock has become a sale      | Payment webhook (M7)    |
+| `PROCESSING`      | Being prepared for dispatch                              | Administrator (M8)      |
+| `SHIPPED`         | Handed to the carrier                                    | Administrator (M8)      |
+| `DELIVERED`       | Received by the customer                                 | Administrator (M8)      |
+| `CANCELLED`       | Cancelled by the customer before payment; stock released | Customer                |
+| `EXPIRED`         | Not paid within the reservation window; stock released   | Expiry sweep or on view |
+| `REFUNDED`        | Payment returned                                         | Payments (M7)           |
+
+Every transition implemented so far is a conditional update on the current status, so an order cannot make the same transition twice.
 
 ### 6.4 Catalog queries
 
@@ -357,8 +383,7 @@ Node.js uses an LTS release: `.nvmrc` pins the version used for development and 
 
 ## 11. Open decisions
 
-| Decision                     | Current leaning                                                             | Decided in        |
-| ---------------------------- | --------------------------------------------------------------------------- | ----------------- |
-| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process | M6                |
-| Stripe integration surface   | PaymentIntents with Stripe Elements                                         | M7                |
-| `packages/shared`            | Create only if Zod schemas are needed by both apps                          | When first needed |
+| Decision                   | Current leaning                                    | Decided in        |
+| -------------------------- | -------------------------------------------------- | ----------------- |
+| Stripe integration surface | PaymentIntents with Stripe Elements                | M7                |
+| `packages/shared`          | Create only if Zod schemas are needed by both apps | When first needed |
