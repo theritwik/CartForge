@@ -144,7 +144,7 @@ A module omits any file it does not need.
 ### 4.3 API conventions
 
 - REST, JSON, versioned under `/api/v1`.
-- Zod schemas validate `body`, `params`, and `query` in middleware; controllers receive typed data.
+- Controllers validate `body`, `params`, and `query` by parsing them with the module's Zod schemas before calling a service. A failed parse throws, and the error handler turns it into a `400 VALIDATION_ERROR` response listing each invalid field. (Express 5 makes `req.query` read-only, so a middleware cannot replace it with parsed values.)
 - List endpoints are paginated and return `{ data, meta }`.
 - Errors use one envelope, produced by a single error-handling middleware:
 
@@ -287,11 +287,22 @@ PENDING_PAYMENT --> PAID --> SHIPPED --> DELIVERED
 
 Transitions are enforced in the orders service. Invalid transitions are rejected.
 
+### 6.4 Catalog queries
+
+- Public catalog endpoints only ever return `ACTIVE` products; drafts and archived products respond as not found.
+- The list endpoint runs one transaction with two statements: the page of products (with category and primary image selected in the same query plan, so there is no query per product) and the total count.
+- Available stock is `stockQuantity - reservedQuantity`, computed in the service and returned as `availableQuantity` and `inStock`.
+- Search requires every term to appear in the product name or description, case-insensitively. `LIKE` wildcards in the input are escaped. This is a sequential scan, which is fine for a small catalog; a trigram index is the planned upgrade in the hardening milestone.
+- Page size is capped at 48 and sorting uses the id as a tiebreaker so pages do not overlap.
+- Numeric query parameters must be plain decimal digits, search text may not contain control characters, and a malformed product slug is answered with 404 without querying the database.
+- The categories endpoint lists only categories that have at least one published product.
+
 ## 7. Frontend
 
 - Server Components by default; catalog and product pages fetch on the server. Client Components are used for interactive parts (cart controls, forms, Stripe Elements).
 - Route groups separate the storefront, auth pages, account pages, and admin area, each with its own layout where needed.
-- A single typed API client in `lib/` handles requests and the error envelope.
+- `lib/catalog-api.ts` is the catalog API client. Server Components call the API directly at `API_URL`, server to server, and validate each response with Zod. Requests made from the browser use the same-origin `/api` proxy.
+- Listing state (search, price range, sort, page) lives in the URL. Pages parse it leniently, so a malformed query string falls back to defaults instead of an error page.
 - Protected routes are checked on the server; the API remains the authority on authorization.
 - No global state library is planned. Server state comes from the API; local state stays in components. This is revisited only if a concrete need appears.
 
@@ -318,9 +329,8 @@ Node.js uses an LTS release: `.nvmrc` pins the version used for development and 
 
 ## 11. Open decisions
 
-| Decision                     | Current leaning                                                                 | Decided in        |
-| ---------------------------- | ------------------------------------------------------------------------------- | ----------------- |
-| Product images               | `ProductImage` rows hold URLs; seed uses placeholder images; no upload pipeline | M3                |
-| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process     | M7                |
-| Stripe integration surface   | PaymentIntents with Stripe Elements                                             | M8                |
-| `packages/shared`            | Create only if Zod schemas are needed by both apps                              | When first needed |
+| Decision                     | Current leaning                                                             | Decided in        |
+| ---------------------------- | --------------------------------------------------------------------------- | ----------------- |
+| Reservation expiry mechanism | Expiry timestamp checked on access plus a periodic sweep in the API process | M7                |
+| Stripe integration surface   | PaymentIntents with Stripe Elements                                         | M8                |
+| `packages/shared`            | Create only if Zod schemas are needed by both apps                          | When first needed |

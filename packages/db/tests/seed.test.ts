@@ -26,10 +26,10 @@ async function countCatalogRows() {
 }
 
 describe('seedCatalog', () => {
-  it('creates categories, products, and one primary image per product', async () => {
+  it('creates categories, products, and two images per product', async () => {
     const summary = await seedCatalog(prisma);
 
-    expect(summary).toEqual({ categories: 5, products: 20, images: 20 });
+    expect(summary).toEqual({ categories: 5, products: 20, images: 40 });
     expect(await countCatalogRows()).toEqual(summary);
     expect(await prisma.product.count({ where: { images: { none: {} } } })).toBe(0);
   });

@@ -209,9 +209,20 @@ const catalog: SeedCategory[] = [
   },
 ];
 
-// Placeholder images until real product photography is chosen.
-function placeholderImageUrl(productName: string): string {
-  return `https://placehold.co/800x800/png?text=${encodeURIComponent(productName)}`;
+// Labelled placeholder drawings served by the web app from apps/web/public.
+function placeholderImages(product: SeedProduct) {
+  return [
+    {
+      position: 0,
+      url: `/images/products/${product.slug}-1.svg`,
+      altText: `${product.name} (placeholder image)`,
+    },
+    {
+      position: 1,
+      url: `/images/products/${product.slug}-2.svg`,
+      altText: `${product.name}, close-up (placeholder image)`,
+    },
+  ];
 }
 
 export interface SeedSummary {
@@ -253,13 +264,14 @@ export async function seedCatalog(prisma: PrismaClient): Promise<SeedSummary> {
           });
           summary.products += 1;
 
-          const image = { url: placeholderImageUrl(product.name), altText: product.name };
-          await tx.productImage.upsert({
-            where: { productId_position: { productId: savedProduct.id, position: 0 } },
-            update: image,
-            create: { ...image, productId: savedProduct.id, position: 0 },
-          });
-          summary.images += 1;
+          for (const { position, ...image } of placeholderImages(product)) {
+            await tx.productImage.upsert({
+              where: { productId_position: { productId: savedProduct.id, position } },
+              update: image,
+              create: { ...image, productId: savedProduct.id, position },
+            });
+            summary.images += 1;
+          }
         }
       }
     },

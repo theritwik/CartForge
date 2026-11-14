@@ -2,15 +2,17 @@
 
 A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL, and Redis, organised as a pnpm monorepo.
 
-**Status:** Milestones 1 (project foundation) and 2 (database foundation) are complete. No store features exist yet. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
+**Status:** Milestones 1 to 3 are complete: project foundation, database, and a browsable product catalog. Accounts, cart, checkout, and payments are not built yet. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
 
 ## What works today
 
-- Express API with validated environment configuration, structured logging, security headers, a central error handler, and a health endpoint that checks PostgreSQL and Redis.
-- Next.js homepage, with `/api/*` proxied to the API so the browser uses a single origin.
-- PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed. No API endpoints use these tables yet.
-- Docker Compose services for PostgreSQL and Redis.
-- Linting, formatting, type checking, tests, and a CI workflow.
+- Storefront: homepage, product listing with search, category and price filters, sorting and pagination, category pages, and product detail pages with an image gallery and stock status.
+- Catalog API: product list, product detail, and categories, validated with Zod and limited to published products.
+- PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed.
+- API health endpoint that checks PostgreSQL and Redis, and a same-origin `/api/*` proxy from the web app.
+- Docker Compose services, linting, formatting, type checking, database and API integration tests, and a CI workflow.
+
+Product images are labelled placeholder drawings, not product photography.
 
 ## Stack
 
@@ -26,24 +28,31 @@ A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL
 ```
 .
 ├── apps/
-│   ├── api/                     Express API
-│   │   └── src/
-│   │       ├── config/          environment validation
-│   │       ├── lib/             logger, Prisma client, Redis client, error class
-│   │       ├── middleware/      not-found and error handlers
-│   │       ├── modules/health/  health endpoint
-│   │       ├── app.ts           Express app assembly
-│   │       └── server.ts        process entry point
-│   └── web/                     Next.js application
-│       ├── src/app/             layout, homepage, global styles
-│       ├── src/components/      header and footer
-│       └── next.config.ts       API proxy and environment validation
+│   ├── api/                         Express API
+│   │   ├── src/
+│   │   │   ├── config/              environment validation
+│   │   │   ├── lib/                 logger, Prisma client, Redis client, error class
+│   │   │   ├── middleware/          not-found and error handlers
+│   │   │   ├── modules/
+│   │   │   │   ├── health/          health endpoint
+│   │   │   │   └── products/        catalog routes, controller, service, schemas, tests
+│   │   │   ├── app.ts               Express app assembly
+│   │   │   └── server.ts            process entry point
+│   │   └── tests/                   test database setup
+│   └── web/                         Next.js application
+│       ├── public/images/products/  placeholder product images
+│       ├── src/app/                 root layout, not-found page, global styles
+│       ├── src/app/(shop)/          homepage, products, product detail, categories
+│       ├── src/components/          header, footer
+│       ├── src/components/catalog/  product card and grid, filters, sort, pagination, gallery
+│       ├── src/lib/                 catalog API client, URL filter parsing, price formatting
+│       └── next.config.ts           API proxy and environment validation
 ├── packages/
-│   └── db/                      Prisma schema, migrations, seed, client factory
-│       ├── prisma/              schema.prisma, migrations/, seed.ts, seed-catalog.ts
-│       ├── src/                 client factory and test-database helpers
-│       └── tests/               database integration tests
-├── docs/                        architecture, database schema, roadmap
+│   └── db/                          Prisma schema, migrations, seed, client factory
+│       ├── prisma/                  schema.prisma, migrations/, seed.ts, seed-catalog.ts
+│       ├── src/                     client factory and test-database helpers
+│       └── tests/                   database integration tests
+├── docs/                            architecture, database schema, roadmap
 ├── .github/workflows/ci.yml
 ├── docker-compose.yml
 ├── eslint.config.mjs
@@ -66,6 +75,7 @@ pnpm dev
 ```
 
 - Web: http://localhost:3000
+- Products API: http://localhost:4000/api/v1/products
 - API health: http://localhost:4000/health
 - API health through the web proxy: http://localhost:3000/api/v1/health
 
@@ -84,21 +94,49 @@ The API and the web app validate their configuration at startup and refuse to st
 
 Run from the repository root.
 
-| Command             | Purpose                                                            |
-| ------------------- | ------------------------------------------------------------------ |
-| `pnpm dev`          | Start the API and web app with reload                              |
-| `pnpm build`        | Build all packages                                                 |
-| `pnpm lint`         | Run ESLint                                                         |
-| `pnpm typecheck`    | Type-check all packages                                            |
-| `pnpm test`         | Run database and API tests (requires PostgreSQL and Redis running) |
-| `pnpm db:migrate`   | Create and apply migrations on the development database            |
-| `pnpm db:seed`      | Load the development catalog                                       |
-| `pnpm format`       | Format with Prettier                                               |
-| `pnpm format:check` | Check formatting                                                   |
+| Command             | Purpose                                                                       |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `pnpm dev`          | Start the API and web app with reload                                         |
+| `pnpm build`        | Build all packages                                                            |
+| `pnpm lint`         | Run ESLint                                                                    |
+| `pnpm typecheck`    | Type-check all packages                                                       |
+| `pnpm test`         | Run database, API, and web unit tests (requires PostgreSQL and Redis running) |
+| `pnpm db:migrate`   | Create and apply migrations on the development database                       |
+| `pnpm db:seed`      | Load the development catalog                                                  |
+| `pnpm format`       | Format with Prettier                                                          |
+| `pnpm format:check` | Check formatting                                                              |
 
 ## Tests and the test database
 
 Tests run against a separate database named by `TEST_DATABASE_URL` (`cartforge_test` by default), which is created and migrated automatically on the first run. Tests refuse to start if that variable is missing, names a database that does not end in `_test`, or matches `DATABASE_URL`, so they cannot modify development data.
+
+## Catalog API
+
+All amounts are integer paise. Only published (`ACTIVE`) products are returned.
+
+| Endpoint                     | Description                                                    |
+| ---------------------------- | -------------------------------------------------------------- |
+| `GET /api/v1/products`       | Paginated product list with search, filters, and sorting       |
+| `GET /api/v1/products/:slug` | One product with description and all images                    |
+| `GET /api/v1/categories`     | Categories that have published products, with a count for each |
+
+Query parameters for the product list:
+
+| Parameter       | Meaning                                                   | Default  |
+| --------------- | --------------------------------------------------------- | -------- |
+| `q`             | Search terms; each must appear in the name or description |          |
+| `category`      | Category slug                                             |          |
+| `minPricePaise` | Minimum price, inclusive                                  |          |
+| `maxPricePaise` | Maximum price, inclusive                                  |          |
+| `sort`          | `newest`, `price_asc`, or `price_desc`                    | `newest` |
+| `page`          | Page number, starting at 1                                | `1`      |
+| `pageSize`      | Items per page, 1 to 48                                   | `12`     |
+
+```bash
+curl "http://localhost:4000/api/v1/products?category=electronics&maxPricePaise=600000&sort=price_asc"
+```
+
+Invalid parameters return `400` with code `VALIDATION_ERROR` and the list of invalid fields. An unknown or unpublished product returns `404` with code `PRODUCT_NOT_FOUND`.
 
 ## Health endpoint
 

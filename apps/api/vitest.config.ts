@@ -10,6 +10,8 @@ if (existsSync(rootEnvFile)) {
 export default defineConfig({
   test: {
     globalSetup: './tests/global-setup.ts',
+    // Test files share one database, so they run one at a time.
+    fileParallelism: false,
     env: {
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
