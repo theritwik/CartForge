@@ -5,6 +5,7 @@ import { logger } from './lib/logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { notFoundHandler } from './middleware/not-found.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { categoriesRouter, productsRouter } from './modules/products/products.routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -16,6 +17,8 @@ export function createApp(): Express {
   // Unversioned path for infrastructure probes; versioned path is reachable through the web proxy.
   app.use('/health', healthRouter);
   app.use('/api/v1/health', healthRouter);
+  app.use('/api/v1/products', productsRouter);
+  app.use('/api/v1/categories', categoriesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

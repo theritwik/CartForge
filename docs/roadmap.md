@@ -7,7 +7,7 @@ Milestones are built in order, one at a time. A milestone is complete only when 
 | 0   | Planning and architecture                               | done    |
 | 1   | Monorepo foundation                                     | done    |
 | 2   | Database foundation                                     | done    |
-| 3   | Product catalog                                         | planned |
+| 3   | Product catalog                                         | done    |
 | 4   | Authentication and users                                | planned |
 | 5   | Admin product and inventory management                  | planned |
 | 6   | Cart                                                    | planned |
@@ -48,9 +48,9 @@ Exit criteria: migrations apply to an empty database; the seed can be run repeat
 
 ## M3 - Product catalog
 
-- API: list products (pagination, category filter, search, sort), product detail by slug, list categories.
-- Web: catalog page with filters and pagination, product detail page, loading and empty states.
-- Decide on product images to replace the seeded placeholders.
+- API: list products (pagination, category filter, price range, search, sort), product detail by slug, list categories. Only `ACTIVE` products are exposed.
+- Web: storefront homepage, product listing with search, category and price filters, sorting and pagination, category pages, product detail page with image gallery, and loading, empty, error, and not-found states.
+- Local, labelled placeholder product images served by the web app, replacing the external placeholder URLs.
 - Integration tests for catalog endpoints.
 
 Exit criteria: seeded catalog is browsable in the web app; query parameter validation is tested.

@@ -180,11 +180,11 @@ After changing the schema, run `pnpm --filter @cartforge/db build` so the API se
 
 ## Seed data
 
-`pnpm db:seed` loads a development catalog: 5 categories and 20 products with one image each, priced in INR. One product is a draft and one is out of stock, so those states are visible during development.
+`pnpm db:seed` loads a development catalog: 5 categories and 20 products with two images each, priced in INR. One product is a draft and one is out of stock, so those states are visible during development.
 
 The seed matches rows by slug and can be run repeatedly without creating duplicates. It restores catalog fields (name, description, price, status) but sets stock only when a product is first created. It refuses to run when `NODE_ENV` is `production`. No users are seeded; that waits for the authentication milestone, when password hashing exists.
 
-Product image URLs point at a placeholder image service until real images are chosen.
+Product image URLs are site-relative paths (`/images/products/<slug>-1.svg`) to labelled placeholder drawings in `apps/web/public/images/products`. They are original line drawings made for this project, not photographs of real products.
 
 ## Test database
 

@@ -32,6 +32,8 @@ Run from the repository root. Node.js 24 (`.nvmrc`), pnpm 10.
 - `pnpm db:seed` - load the development catalog; safe to run repeatedly
 - `pnpm --filter @cartforge/db build` - regenerate and rebuild the Prisma client after schema changes
 
+Before writing Next.js code, read `apps/web/AGENTS.md` and the bundled docs it points to; Next.js 16 differs from older versions.
+
 Tests need the Compose services running. They use `TEST_DATABASE_URL` only and must never connect to the development database; use the helpers in `@cartforge/db/testing`. Configuration lives in `.env` (Compose, API, Prisma CLI, tests) and `apps/web/.env.local`.
 
 ## Workflow
@@ -60,7 +62,7 @@ Do not push, deploy, delete important files, or run destructive operations (incl
 
 1. Strict TypeScript. No `any` without a written reason.
 2. Apply SOLID where it improves maintainability, not as a ritual.
-3. Controllers handle HTTP only. Business logic lives in services.
+3. Controllers handle HTTP only: parse the request with the module's Zod schema, call one service function, send the response. Business logic lives in services.
 4. Descriptive names for variables and functions.
 5. No unnecessary abstractions or interfaces. Add a layer only when a second concrete use exists.
 6. No generic boilerplate. Every file has a reason to exist.

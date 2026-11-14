@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     template: '%s | CartForge',
   },
   description:
-    'CartForge is a full-stack e-commerce application built with Next.js, Express, PostgreSQL, and Redis.',
+    'CartForge is an online store for electronics, home and kitchen, fashion, books, and fitness products.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
