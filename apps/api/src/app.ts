@@ -7,6 +7,7 @@ import { isPaymentSimulator } from './lib/stripe.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { notFoundHandler } from './middleware/not-found.js';
 import { verifyRequestOrigin } from './middleware/verify-origin.js';
+import { adminRouter } from './modules/admin/admin.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { cartRouter } from './modules/cart/cart.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
@@ -50,6 +51,7 @@ export function createApp(): Express {
   app.use('/api/v1/cart', noStore, cartRouter);
   app.use('/api/v1/orders', noStore, ordersRouter);
   app.use('/api/v1', noStore, paymentsRouter);
+  app.use('/api/v1/admin', noStore, adminRouter);
   if (isPaymentSimulator) {
     app.use('/api/v1/dev/payment-simulator', noStore, paymentSimulatorRouter);
   }

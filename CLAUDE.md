@@ -19,7 +19,7 @@ Full-stack e-commerce application built as a pnpm monorepo. See `docs/architectu
 - `packages/shared` - created only when web and api genuinely share code
 - `docs/` - architecture, database schema, and roadmap
 
-API modules: `auth`, `users`, `products`, `cart`, `inventory`, `orders`, `payments`. Each module contains only the files it needs (routes, controller, service, schemas, tests).
+API modules: `auth`, `users`, `products`, `cart`, `inventory`, `orders`, `payments`, `admin`. The `admin` module holds the administrator router and dashboard; the operations it exposes live in their own modules. Each module contains only the files it needs (routes, controller, service, schemas, tests).
 
 ## Commands
 
@@ -89,6 +89,7 @@ Do not push, deploy, delete important files, or run destructive operations (incl
 - Protect routes with `requireAuth` and `requireRole` from `middleware/authenticate.ts`. Return users only through `publicUserSelect`. Roles are never accepted from request input.
 - State-changing API requests must carry the web app's `Origin`; API tests send it with the `post` helper in `apps/api/tests/auth-helpers.ts`.
 - Stock changes and order creation run inside database transactions. Change stock only through `reserveStock`, `releaseStock`, and `commitStock` in the inventory service, passing the caller's transaction; they update products in id order to avoid deadlocks.
+- Administrators change an order's status only through `ADMIN_ORDER_TRANSITIONS` in `order-status-policy.ts`. `PAID` is never an administrator transition. Admin routes go on `adminRouter`, which applies `requireAuth` and `requireRole('ADMIN')` to all of them.
 - Change an order's status with a conditional update on its current status (`updateMany` with the expected status in `where`), and release or commit stock only when that update changed a row.
 - Checkout requires an `Idempotency-Key` header and compares the client's `expectedTotalPaise` with the server's total. The client's figure is never used as the price.
 - Every write to a cart first locks the cart row (`lockCart` in the cart service). Adding to a cart never reserves stock. Stale cart items are flagged, not deleted.

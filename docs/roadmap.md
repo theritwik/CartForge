@@ -12,7 +12,7 @@ Milestones are built in order, one at a time. A milestone is complete only when 
 | 5   | Cart and password change                                | done    |
 | 6   | Order management and inventory                          | done    |
 | 7   | Payments                                                | done    |
-| 8   | Admin dashboard                                         | planned |
+| 8   | Admin dashboard                                         | done    |
 | 9   | Caching and hardening                                   | planned |
 | 10  | End-to-end tests, containers, and release documentation | planned |
 
@@ -106,11 +106,14 @@ Not done: an end-to-end run against Stripe's own test environment, which needs a
 
 ## M8 - Admin dashboard
 
-- API: admin product create, update, archive; category management; stock adjustment; order list and status transitions.
-- Web: admin area for products, stock, and orders, restricted to `ADMIN`.
-- Tests: authorization on every admin endpoint, validation, stock adjustment rules, order status transitions.
+- API under `/api/v1/admin`, administrators only: dashboard figures; product list with search and filters, create, edit, archive, and reactivate; categories with create, rename, and delete-when-empty; stock adjustments that cannot go below reserved units; order list with status, reference, and email filters, order detail with payments, and status changes limited to an explicit policy.
+- Administrators can never mark an order paid, and can cancel only unpaid orders.
+- Web: admin area with sidebar navigation, dashboard cards, a 14-day sales chart, orders by status, recent orders, low stock, and pages for products, inventory, categories, and orders.
+- Tests: access for customers and administrators, validation, uniqueness, archiving, stock rules under concurrency, order filtering, allowed and refused transitions, payment detail access, and dashboard calculations.
 
 Exit criteria: an admin can manage the catalog, stock, and orders through the UI; a customer cannot reach admin endpoints or pages.
+
+Not done: a history of stock adjustments, product image management, and refunding or cancelling orders that have been paid.
 
 ## M9 - Caching and hardening
 

@@ -282,24 +282,37 @@ export async function confirmOrderPayment(
   return true;
 }
 
-/** A customer may cancel their own order while it is still awaiting payment. */
-export async function cancelOrder(userId: string, orderId: string) {
-  await prisma.$transaction(async (tx) => {
+/**
+ * Cancels an order that is still awaiting payment and releases its stock, in
+ * one transaction. Returns false, changing nothing, if no such order is
+ * awaiting payment. Used by customers (scoped to their own orders) and by
+ * administrators.
+ */
+export async function cancelPendingOrder(where: { id: string; userId?: string }): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
     const { count } = await tx.order.updateMany({
-      where: { id: orderId, userId, status: 'PENDING_PAYMENT' },
+      where: { ...where, status: 'PENDING_PAYMENT' },
       data: { status: 'CANCELLED', reservationExpiresAt: null },
     });
     if (count === 0) {
-      const order = await tx.order.findFirst({
-        where: { id: orderId, userId },
-        select: { id: true },
-      });
-      throw order
-        ? new AppError(409, 'ORDER_NOT_CANCELLABLE', 'This order can no longer be cancelled.')
-        : new AppError(404, 'ORDER_NOT_FOUND', 'Order not found.');
+      return false;
     }
-    await releaseStock(tx, await orderStockLines(tx, orderId));
+    await releaseStock(tx, await orderStockLines(tx, where.id));
+    return true;
   });
+}
+
+/** A customer may cancel their own order while it is still awaiting payment. */
+export async function cancelOrder(userId: string, orderId: string) {
+  if (!(await cancelPendingOrder({ id: orderId, userId }))) {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, userId },
+      select: { id: true },
+    });
+    throw order
+      ? new AppError(409, 'ORDER_NOT_CANCELLABLE', 'This order can no longer be cancelled.')
+      : new AppError(404, 'ORDER_NOT_FOUND', 'Order not found.');
+  }
   return getOrder(userId, orderId);
 }
 

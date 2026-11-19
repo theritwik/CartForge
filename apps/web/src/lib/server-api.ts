@@ -7,6 +7,8 @@ export type ApiReply =
   | { status: 'ok'; body: unknown }
   /** The visitor has no session cookie, or the API no longer accepts it. */
   | { status: 'unauthenticated' }
+  /** Signed in, but not allowed: an admin endpoint called by a customer. */
+  | { status: 'forbidden' }
   | { status: 'not_found' };
 
 /**
@@ -26,6 +28,9 @@ export async function fetchAsCurrentUser(path: string): Promise<ApiReply> {
   });
   if (response.status === 401) {
     return { status: 'unauthenticated' };
+  }
+  if (response.status === 403) {
+    return { status: 'forbidden' };
   }
   if (response.status === 404) {
     return { status: 'not_found' };
