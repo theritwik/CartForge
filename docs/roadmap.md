@@ -113,7 +113,7 @@ Not done: an end-to-end run against Stripe's own test environment, which needs a
 
 Exit criteria: an admin can manage the catalog, stock, and orders through the UI; a customer cannot reach admin endpoints or pages.
 
-Not done: a history of stock adjustments, product image management, and refunding or cancelling orders that have been paid.
+Not done: refunding or cancelling orders that have been paid. Further admin improvements are listed in the [backlog](#backlog).
 
 ## M9 - Caching and hardening
 
@@ -132,6 +132,18 @@ Exit criteria: cache invalidation is covered by tests; the API works correctly w
 - Final README: features, architecture summary, setup, test commands, screenshots.
 
 Exit criteria: full stack starts from containers; all test levels pass in CI; documentation matches what is implemented.
+
+## Backlog
+
+Improvements identified after M8. None is implemented. An item becomes work only when it is scheduled into a milestone; those marked with a milestone already fit its stated scope.
+
+| Item                        | What it involves                                                                                                                                                                                       | Fits                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
+| Stock adjustment history    | A table recording each adjustment: product, change, resulting stock, administrator, reason, and time. Written in the same transaction as the adjustment, and shown on the product and inventory pages. | Unscheduled                    |
+| Product image management    | Uploading, ordering, replacing, and removing product images from the admin area, with storage outside the database and validation of file type and size. Products created today have no image.         | Unscheduled                    |
+| Administrative activity log | A record of every state-changing admin action (product, category, stock, and order changes) with the administrator and time, viewable by administrators. Overlaps with the stock adjustment history.   | Unscheduled                    |
+| Admin API rate limiting     | Per-administrator limits on `/api/v1/admin` writes, using the existing Redis rate limiter.                                                                                                             | M9 (general API rate limiting) |
+| Automated browser tests     | A committed Playwright suite in CI covering the storefront, checkout, payment simulator, and admin journeys. The browser checks so far were scripted by hand and are not in the repository.            | M10 (end-to-end tests)         |
 
 ## Out of scope
 
