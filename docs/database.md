@@ -143,7 +143,7 @@ Unique `name` and `slug`.
 - `status` controls visibility: only `ACTIVE` products are meant to be sold. Products are archived rather than deleted once they have been ordered.
 - Inventory is two counters on the row: `stock_quantity` (units on hand) and `reserved_quantity` (units held by unpaid orders). Units available to buy are `stock_quantity - reserved_quantity`. Whether a product is in stock is derived from these, not stored.
 - CHECK constraints: `price_paise >= 0`, `stock_quantity >= 0`, and `0 <= reserved_quantity <= stock_quantity`. The last one makes the database the final guard against overselling.
-- Indexes: `(category_id, status)` for category listings and `(status, created_at)` for the default catalog listing.
+- Indexes: `(category_id, status)` for category listings, `(status, created_at)` for the default catalog listing, `(status, price_paise, id)` for price sorting, and trigram GIN indexes (`pg_trgm`) on `name` and `description` for substring search. See [performance.md](performance.md).
 
 ### product_images
 
@@ -155,7 +155,7 @@ One cart per user (`carts.user_id` is unique). A product appears at most once pe
 
 ### orders
 
-Belongs to a user. Holds the status, `total_paise`, the shipping address, and `reservation_expires_at` while the order is holding stock. `idempotency_key` is chosen by the client for one checkout attempt and is unique per user, so a repeated request finds the order it already created. Indexes: `(user_id, created_at)` for order history and `(status, reservation_expires_at)` for finding expired reservations.
+Belongs to a user. Holds the status, `total_paise`, the shipping address, and `reservation_expires_at` while the order is holding stock. `idempotency_key` is chosen by the client for one checkout attempt and is unique per user, so a repeated request finds the order it already created. Indexes: `(user_id, created_at)` for order history, `(status, reservation_expires_at)` for finding expired reservations, and `(created_at, id)` for recent orders and the dashboard sales trend across all customers.
 
 ### order_items
 
@@ -194,11 +194,13 @@ After changing the schema, run `pnpm --filter @cartforge/db build` so the API se
 
 ### Migration history
 
-| Migration          | Change                                                                                                                                                          |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`             | All tables, enums, indexes, CHECK constraints, and the order-item immutability trigger                                                                          |
-| `order_checkout`   | `PROCESSING` and `EXPIRED` order statuses; `orders.idempotency_key` with a unique index per customer                                                            |
-| `payment_attempts` | Several payment attempts per order (one pending at a time), Checkout session fields, `EXPIRED` and `REFUND_PENDING` payment statuses, `processed_stripe_events` |
+| Migration                 | Change                                                                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`                    | All tables, enums, indexes, CHECK constraints, and the order-item immutability trigger                                                                          |
+| `order_checkout`          | `PROCESSING` and `EXPIRED` order statuses; `orders.idempotency_key` with a unique index per customer                                                            |
+| `payment_attempts`        | Several payment attempts per order (one pending at a time), Checkout session fields, `EXPIRED` and `REFUND_PENDING` payment statuses, `processed_stripe_events` |
+| `catalog_search_indexes`  | `pg_trgm` extension, trigram indexes on product name and description, and the `(status, price_paise, id)` index                                                 |
+| `orders_created_at_index` | `(created_at, id)` index on orders                                                                                                                              |
 
 ## Seed data
 

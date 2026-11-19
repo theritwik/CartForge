@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   app,
-  clearRateLimits,
+  resetRedisState,
   post,
   sessionCookieOf,
   signUp,
@@ -36,7 +36,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await truncateAllTables(prisma);
-  await clearRateLimits();
+  await resetRedisState();
 });
 
 afterAll(async () => {

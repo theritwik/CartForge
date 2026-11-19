@@ -2,7 +2,7 @@
 
 A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL, and Redis, organised as a pnpm monorepo.
 
-**Status:** Milestones 1 to 8 are complete: project foundation, database, product catalog, user accounts, persistent cart, checkout with order management, test-mode payments through Stripe Checkout, and an admin dashboard for running the store. The Stripe integration has been tested with mocked Stripe API calls and with the local development simulator. It has **not yet been verified against real Stripe Test Mode**; see [Verifying with Stripe Test Mode](#verifying-with-stripe-test-mode).
+**Status:** Milestones 1 to 9 are complete: project foundation, database, product catalog, user accounts, persistent cart, checkout with order management, test-mode payments through Stripe Checkout, an admin dashboard for running the store, and Redis caching with database indexing for the catalog. The Stripe integration has been tested with mocked Stripe API calls and with the local development simulator. It has **not yet been verified against real Stripe Test Mode**; see [Verifying with Stripe Test Mode](#verifying-with-stripe-test-mode).
 
 ## What works today
 
@@ -12,7 +12,7 @@ A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL
 - Orders: checkout with a shipping address, stock reserved for 30 minutes, order history, order detail with status, and cancellation. Reservations that run out are released automatically.
 - Payments: Stripe Checkout in test mode, verified webhooks, reconciliation of amount and order, refunds for payments that arrive too late, and retry after a failed attempt.
 - Administration: a dashboard of sales, orders, and stock; product, category, and inventory management; and order fulfilment limited to permitted status changes.
-- Catalog API: product list, product detail, and categories, validated with Zod and limited to published products.
+- Catalog API: product list, product detail, and categories, validated with Zod and limited to published products. Responses are cached in Redis with live prices and stock, and search uses trigram indexes. Measurements are in [docs/performance.md](docs/performance.md).
 - Auth API: Argon2id password hashing, session expiry and revocation, role checks for customers and administrators, CSRF protection, and login rate limiting.
 - PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed.
 - API health endpoint that checks PostgreSQL and Redis, and a same-origin `/api/*` proxy from the web app.
@@ -51,6 +51,7 @@ Product images are labelled placeholder drawings, not product photography.
 │   │   │   │   └── users/           current user and administrator user list
 │   │   │   ├── app.ts               Express app assembly
 │   │   │   └── server.ts            process entry point
+│   │   ├── benchmarks/              benchmark dataset, load test, and latency probe
 │   │   ├── scripts/                 create-admin.ts
 │   │   └── tests/                   test database setup and auth test helpers
 │   └── web/                         Next.js application
@@ -106,14 +107,14 @@ pnpm dev
 - API health: http://localhost:4000/health
 - API health through the web proxy: http://localhost:3000/api/v1/health
 
-`pnpm install` also generates the Prisma client and builds `packages/db`. `pnpm services:up` starts PostgreSQL and Redis and waits until both are healthy; `pnpm services:down` stops them. `pnpm db:migrate` applies the migrations to the development database, and `pnpm db:seed` loads 5 categories and 20 products; the seed can be run again at any time without creating duplicates.
+`pnpm install` also generates the Prisma client and builds `packages/db`. `pnpm services:up` starts PostgreSQL, Redis for rate limits, and a separate Redis for the catalog cache, and waits until all three are healthy; `pnpm services:down` stops them. `pnpm db:migrate` applies the migrations to the development database, and `pnpm db:seed` loads 5 categories and 20 products; the seed can be run again at any time without creating duplicates.
 
 ## Configuration
 
-| File                  | Read by                                    | Variables                                                                                                                                                                                         |
-| --------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.env`                | Docker Compose, the API, Prisma CLI, tests | `POSTGRES_*`, `REDIS_PORT`, `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `WEB_ORIGIN`, `TRUST_PROXY_HOPS`, `DATABASE_URL`, `REDIS_URL`, `TEST_DATABASE_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
-| `apps/web/.env.local` | The web app                                | `API_URL`                                                                                                                                                                                         |
+| File                  | Read by                                    | Variables                                                                                                                                                                                                                                |
+| --------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.env`                | Docker Compose, the API, Prisma CLI, tests | `POSTGRES_*`, `REDIS_PORT`, `CACHE_REDIS_PORT`, `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `WEB_ORIGIN`, `TRUST_PROXY_HOPS`, `DATABASE_URL`, `REDIS_URL`, `CACHE_REDIS_URL`, `TEST_DATABASE_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
+| `apps/web/.env.local` | The web app                                | `API_URL`                                                                                                                                                                                                                                |
 
 The API and the web app validate their configuration at startup and refuse to start if it is invalid. The values in the example files are for local development only.
 
@@ -356,12 +357,16 @@ curl "http://localhost:4000/api/v1/products?category=electronics&maxPricePaise=6
 
 Invalid parameters return `400` with code `VALIDATION_ERROR` and the list of invalid fields. An unknown or unpublished product returns `404` with code `PRODUCT_NOT_FOUND`.
 
+### Caching
+
+The three catalog endpoints are cached in Redis for 2 minutes (lists) or 5 minutes (detail and categories). Prices, publication status, and stock are read from PostgreSQL on every request, so they are never stale. Edits made through the admin API appear immediately. Changes made directly in the database, including `pnpm db:seed`, can take up to 5 minutes to change names, descriptions, or list membership. The cache runs on its own Redis instance (`CACHE_REDIS_URL`), so it can evict entries under memory pressure without touching rate-limit counters. If it is unavailable, the catalog is served from PostgreSQL. Design and measurements are in [docs/performance.md](docs/performance.md).
+
 ## Health endpoint
 
-`GET /health` returns `200` when PostgreSQL and Redis are reachable and `503` otherwise:
+`GET /health` returns `200` when PostgreSQL and the rate-limit Redis are reachable and `503` otherwise. The catalog cache is reported too, but does not affect the status, because the catalog is served from PostgreSQL without it:
 
 ```json
-{ "status": "ok", "checks": { "database": "up", "redis": "up" } }
+{ "status": "ok", "checks": { "database": "up", "redis": "up", "cache": "up" } }
 ```
 
 The same handler is mounted at `/api/v1/health` so it can be reached through the web proxy.

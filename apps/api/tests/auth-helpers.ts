@@ -2,7 +2,7 @@ import { parseSetCookie } from 'cookie';
 import request, { type Response } from 'supertest';
 import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
-import { redis } from '../src/lib/redis.js';
+import { cacheRedis, redis } from '../src/lib/redis.js';
 
 export const app = createApp();
 
@@ -56,10 +56,16 @@ export async function signUp(
   return { ...credentials, id, token: cookie.value, cookie: `${cookie.name}=${cookie.value}` };
 }
 
-export async function clearRateLimits(): Promise<void> {
-  for await (const keys of redis.scanIterator({ MATCH: `cartforge:${env.NODE_ENV}:ratelimit:*` })) {
-    if (keys.length > 0) {
-      await redis.del(keys);
+/** Removes every key the tests created: rate-limit counters, and catalog cache entries if the cache is connected. */
+export async function resetRedisState(): Promise<void> {
+  for (const client of [redis, cacheRedis]) {
+    if (!client.isReady) {
+      continue;
+    }
+    for await (const keys of client.scanIterator({ MATCH: `cartforge:${env.NODE_ENV}:*` })) {
+      if (keys.length > 0) {
+        await client.del(keys);
+      }
     }
   }
 }

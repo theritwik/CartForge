@@ -1,6 +1,6 @@
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../lib/prisma.js';
-import { redis } from '../../lib/redis.js';
+import { cacheRedis, redis } from '../../lib/redis.js';
 
 const CHECK_TIMEOUT_MS = 2000;
 
@@ -11,6 +11,8 @@ export interface HealthReport {
   checks: {
     database: DependencyStatus;
     redis: DependencyStatus;
+    /** Reported but not required: the catalog is served from PostgreSQL without it. */
+    cache: DependencyStatus;
   };
 }
 
@@ -34,13 +36,14 @@ async function probe(dependency: string, check: () => Promise<unknown>): Promise
 }
 
 export async function getHealthReport(): Promise<HealthReport> {
-  const [database, redisStatus] = await Promise.all([
+  const [database, redisStatus, cache] = await Promise.all([
     probe('database', () => prisma.$queryRaw`SELECT 1`),
     probe('redis', () => redis.ping()),
+    probe('cache', () => cacheRedis.ping()),
   ]);
 
   return {
     status: database === 'up' && redisStatus === 'up' ? 'ok' : 'degraded',
-    checks: { database, redis: redisStatus },
+    checks: { database, redis: redisStatus, cache },
   };
 }

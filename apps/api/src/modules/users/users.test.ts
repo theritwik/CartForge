@@ -1,7 +1,7 @@
 import { truncateAllTables } from '@cartforge/db/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { app, clearRateLimits, signUp } from '../../../tests/auth-helpers.js';
+import { app, resetRedisState, signUp } from '../../../tests/auth-helpers.js';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 
@@ -20,7 +20,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await truncateAllTables(prisma);
-  await clearRateLimits();
+  await resetRedisState();
 });
 
 afterAll(async () => {

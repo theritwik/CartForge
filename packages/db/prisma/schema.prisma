@@ -118,6 +118,11 @@ model Product {
 
   @@index([categoryId, status])
   @@index([status, createdAt])
+  // Price sorting across the whole catalog.
+  @@index([status, pricePaise, id])
+  // Substring search (ILIKE '%term%'). Needs the pg_trgm extension, created in the migration.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("products")
 }
 
@@ -191,6 +196,8 @@ model Order {
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
   @@index([status, reservationExpiresAt])
+  // Recent orders and the dashboard sales trend, across all customers.
+  @@index([createdAt, id])
   @@map("orders")
 }
 

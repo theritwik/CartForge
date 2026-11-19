@@ -2,6 +2,7 @@ import { Prisma } from '@cartforge/db';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { uniqueViolationField } from '../../lib/prisma-errors.js';
+import { invalidateCatalogCache } from './catalog-cache.js';
 import type {
   AdminProductQuery,
   CategoryInput,
@@ -122,6 +123,7 @@ export async function createProduct(input: CreateProductInput) {
   await assertCategoryExists(input.categoryId);
   try {
     const product = await prisma.product.create({ data: input, select: { id: true } });
+    await invalidateCatalogCache();
     return await getAdminProduct(product.id);
   } catch (error) {
     throw conflictFor(error, 'product') ?? error;
@@ -145,6 +147,8 @@ export async function updateProduct(productId: string, input: UpdateProductInput
   } catch (error) {
     throw conflictFor(error, 'product') ?? error;
   }
+  // Any catalog field can change what lists show: name, slug, price, category, or status.
+  await invalidateCatalogCache();
   return getAdminProduct(productId);
 }
 
@@ -177,10 +181,12 @@ export async function listAdminCategories() {
 
 export async function createCategory(input: CategoryInput) {
   try {
-    return await prisma.category.create({
+    const category = await prisma.category.create({
       data: input,
       select: { id: true, name: true, slug: true, createdAt: true },
     });
+    await invalidateCatalogCache();
+    return category;
   } catch (error) {
     throw conflictFor(error, 'category') ?? error;
   }
@@ -195,6 +201,8 @@ export async function updateCategory(categoryId: string, input: Partial<Category
   } catch (error) {
     throw conflictFor(error, 'category') ?? error;
   }
+  // Category names and slugs appear in every cached product list.
+  await invalidateCatalogCache();
   return prisma.category.findUniqueOrThrow({
     where: { id: categoryId },
     select: { id: true, name: true, slug: true, createdAt: true },
@@ -231,4 +239,5 @@ export async function deleteCategory(categoryId: string): Promise<void> {
     }
     throw error;
   }
+  await invalidateCatalogCache();
 }

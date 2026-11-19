@@ -11,6 +11,8 @@ const envSchema = z
       .default('info'),
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     REDIS_URL: z.url({ protocol: /^rediss?$/ }),
+    // The catalog cache. A separate instance from REDIS_URL, configured to evict under memory pressure.
+    CACHE_REDIS_URL: z.url({ protocol: /^rediss?$/ }),
     // The origin browsers load the web app from. State-changing requests must come from it.
     WEB_ORIGIN: z.url({ protocol: /^https?$/ }).transform((url) => new URL(url).origin),
     // Number of reverse proxies in front of the API whose X-Forwarded-For entry is trusted.
@@ -29,6 +31,14 @@ const envSchema = z
     STRIPE_WEBHOOK_SECRET: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   })
   .superRefine((config, context) => {
+    if (config.CACHE_REDIS_URL === config.REDIS_URL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['CACHE_REDIS_URL'],
+        message:
+          'must not be the same as REDIS_URL: cache eviction could remove rate-limit counters',
+      });
+    }
     if (config.STRIPE_SECRET_KEY && !config.STRIPE_WEBHOOK_SECRET) {
       context.addIssue({
         code: 'custom',

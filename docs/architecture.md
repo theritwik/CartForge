@@ -233,10 +233,23 @@ The Stripe webhook is exempt from the origin check: it carries no session cookie
 
 Redis is used only where it removes real load or enforces a limit:
 
-- Rate limiting counters (auth endpoints first, then general API).
-- Read-through cache for catalog list and detail responses, invalidated on product or stock writes.
+- Rate limiting counters for login and registration, on `REDIS_URL`.
+- A cache-aside cache for the public catalog: product list, product detail, and categories (`products/catalog-cache.ts`), on a separate instance at `CACHE_REDIS_URL`.
 
-Redis is not a source of truth. The API must behave correctly, only slower, when the cache is empty.
+The two are separate instances because memory limits and eviction apply to a whole instance. The cache instance has a memory limit, evicts keys with a TTL, and is not persisted. The rate-limit instance never evicts, so cache growth cannot reset a login or registration counter. The API refuses to start if both URLs are the same.
+
+Redis is not a source of truth. Inventory, prices, order and payment status, sessions, and roles are always read from PostgreSQL. The API behaves correctly, only slower, when Redis is empty or unreachable.
+
+Catalog cache:
+
+- Entries hold which products match a query, their order, the total, and display fields (name, slug, category, images, description). Price, status, and stock are never cached: on a hit the service reads them for the page's products in one primary-key query, drops any product that is no longer `ACTIVE`, and computes availability from the live figures.
+- Keys are `cartforge:<NODE_ENV>:catalog:v1:g<generation>:<kind>:<digest>`, where the digest is a SHA-256 of the validated, normalised query parameters. TTLs are 120 seconds for lists and 300 seconds for detail and categories.
+- Every catalog write through the admin API increments the generation, so all older entries become unreachable on every instance at once and expire by TTL. Stock changes do not invalidate anything, since stock is read live.
+- Entries are validated with Zod when read; an unreadable entry is discarded and reloaded. Any Redis failure falls back to PostgreSQL, and cache failures are logged at most once every 30 seconds per operation.
+- If invalidation fails, the write still succeeds. Prices, stock, and withdrawn products remain correct; names and list membership may be stale for one TTL. The same bound applies to changes made outside the admin API, such as the seed.
+- Concurrent misses for one key each query the database (no stampede protection). The cache instance runs with a 256 MB limit and the `volatile-ttl` eviction policy. `/health` reports the cache separately and stays `ok` without it.
+
+Measurements, the consistency model, and failure behaviour are in [performance.md](performance.md).
 
 ## 5. Data model
 
@@ -364,8 +377,9 @@ Every transition implemented so far is a conditional update on the current statu
 - Public catalog endpoints only ever return `ACTIVE` products; drafts and archived products respond as not found.
 - The list endpoint runs one transaction with two statements: the page of products (with category and primary image selected in the same query plan, so there is no query per product) and the total count.
 - Available stock is `stockQuantity - reservedQuantity`, computed in the service and returned as `availableQuantity` and `inStock`.
-- Search requires every term to appear in the product name or description, case-insensitively. `LIKE` wildcards in the input are escaped. This is a sequential scan, which is fine for a small catalog; a trigram index is the planned upgrade in the hardening milestone.
-- Page size is capped at 48 and sorting uses the id as a tiebreaker so pages do not overlap.
+- Search requires every term to appear in the product name or description, case-insensitively. `LIKE` wildcards in the input are escaped. Trigram (`pg_trgm`) GIN indexes on name and description serve terms of three or more characters; shorter terms fall back to a sequential scan.
+- Page size is capped at 48 and sorting uses the id as a tiebreaker so pages do not overlap. Each sort order matches an index: `(status, created_at)` for newest first and `(status, price_paise, id)` for price, read forwards or backwards.
+- Results are cached in Redis as described in section 4.5, with price, status, and stock always read live.
 - Numeric query parameters must be plain decimal digits, search text may not contain control characters, and a malformed product slug is answered with 404 without querying the database.
 - The categories endpoint lists only categories that have at least one published product.
 
