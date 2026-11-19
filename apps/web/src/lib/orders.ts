@@ -86,7 +86,8 @@ export type OrderLookup =
 
 export async function getOrder(orderId: string): Promise<OrderLookup> {
   const reply = await fetchAsCurrentUser(`/orders/${encodeURIComponent(orderId)}`);
-  return reply.status === 'ok'
-    ? { status: 'ok', order: orderDetailSchema.parse(reply.body).data }
-    : reply;
+  if (reply.status === 'ok') {
+    return { status: 'ok', order: orderDetailSchema.parse(reply.body).data };
+  }
+  return reply.status === 'unauthenticated' ? reply : { status: 'not_found' };
 }

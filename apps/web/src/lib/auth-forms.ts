@@ -41,3 +41,9 @@ export function fieldErrorsFrom(error: z.ZodError): FieldErrors {
   }
   return errors;
 }
+
+/** A text field's value from a form, or an empty string when the field is missing. */
+export function formText(form: HTMLFormElement, name: string): string {
+  const value = new FormData(form).get(name);
+  return typeof value === 'string' ? value : '';
+}

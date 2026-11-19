@@ -135,7 +135,8 @@ A module omits any file it does not need.
 | auth      | Registration, login, logout, session creation, validation, expiry, and revocation                                                                 |
 | users     | Current user profile, admin user listing                                                                                                          |
 | products  | Catalog queries (list, filter, search, detail), categories, admin product CRUD                                                                    |
-| inventory | Stock levels, reservations, release, admin stock adjustments                                                                                      |
+| inventory | Stock reservation, release, and sale; administrator stock adjustments                                                                             |
+| admin     | The `/api/v1/admin` router (administrators only) and dashboard figures; catalog, order, and stock operations it exposes live in their own modules |
 | cart      | Per-user cart contents and totals                                                                                                                 |
 | orders    | Checkout, order lifecycle, order history, admin order management                                                                                  |
 | payments  | Stripe Checkout sessions for orders, webhook verification and handling, refunds of payments that cannot be applied                                |
@@ -354,7 +355,7 @@ CANCELLED EXPIRED  REFUNDED    REFUNDED
 | `DELIVERED`       | Received by the customer                                 | Administrator (M8)      |
 | `CANCELLED`       | Cancelled by the customer before payment; stock released | Customer                |
 | `EXPIRED`         | Not paid within the reservation window; stock released   | Expiry sweep or on view |
-| `REFUNDED`        | Payment returned                                         | Payments (M7)           |
+| `REFUNDED`        | Payment returned after fulfilment                        | Not settable yet        |
 
 Every transition implemented so far is a conditional update on the current status, so an order cannot make the same transition twice.
 
@@ -367,6 +368,36 @@ Every transition implemented so far is a conditional update on the current statu
 - Page size is capped at 48 and sorting uses the id as a tiebreaker so pages do not overlap.
 - Numeric query parameters must be plain decimal digits, search text may not contain control characters, and a malformed product slug is answered with 404 without querying the database.
 - The categories endpoint lists only categories that have at least one published product.
+
+### 6.6 Administration
+
+Every route under `/api/v1/admin` passes `requireAuth` and `requireRole('ADMIN')`, applied once to the whole router, and keeps the origin check of every state-changing API request. The web app's admin layout also refuses non-administrators, but only for their convenience: the API is the protection. There is no public way to become an administrator; `pnpm admin:create` is the only one.
+
+**Order transitions.** `order-status-policy.ts` lists the only changes an administrator may make:
+
+| From              | To           | Effect                                                       |
+| ----------------- | ------------ | ------------------------------------------------------------ |
+| `PENDING_PAYMENT` | `CANCELLED`  | Releases the reserved stock and closes any open payment page |
+| `PAID`            | `PROCESSING` | None on stock: it was sold when the order was paid           |
+| `PROCESSING`      | `SHIPPED`    | None on stock                                                |
+| `SHIPPED`         | `DELIVERED`  | None on stock                                                |
+
+- `PAID` is never a target. Only the verified payment webhook marks an order paid.
+- A paid order cannot be cancelled here, because that would require refunding the payment and deciding whether its stock returns to sale. Refunding a fulfilled order is not supported yet.
+- `CANCELLED`, `EXPIRED`, `DELIVERED`, and `REFUNDED` are final.
+- The request names the status the administrator saw (`from`) as well as the target. The change is a conditional update on that status, so if the webhook, expiry, the customer, or another administrator changed the order meanwhile, nothing happens and the API answers `ORDER_STATUS_CHANGED`. Cancellation reuses the customer's cancellation path, so stock is released exactly once even when both cancel at the same moment.
+
+**Stock adjustments.** Administrators add or remove physical stock with a relative change (`delta`), never by setting reserved units. The change is one conditional statement, `stock_quantity = stock_quantity + delta WHERE stock_quantity + delta >= reserved_quantity`, so concurrent adjustments and checkouts compose correctly and stock can never drop below what unpaid orders hold. A refused change explains whether it would go below zero or below the reserved units. Adjustments are not recorded in a history table.
+
+**Catalog changes.** Product edits accept only listed fields (name, slug, description, price, category, status); stock and reserved quantities cannot be set through them. Past orders are unaffected because order items keep their own name and price. Archiving hides a product from the store and flags it in carts; reservations held by orders already placed are kept. A category can be deleted only when it has no products at all, including archived ones.
+
+**Dashboard figures.** All come from the database at request time.
+
+- Revenue is the total of orders that were paid and kept: `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`.
+- Awaiting payment is the total of `PENDING_PAYMENT` orders, shown separately because it is not revenue.
+- Refunds owed and refunded are sums of payments in `REFUND_PENDING` and `REFUNDED`.
+- The 14-day sales trend groups paid orders by the day they were placed, in Indian time, including days without sales.
+- Low stock means an active product with 5 or fewer units available.
 
 ### 6.5 Cart
 

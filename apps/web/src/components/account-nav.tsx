@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { unstable_rethrow } from 'next/navigation';
 import { getCart } from '@/lib/cart';
 import { getCurrentUser, type CurrentUser } from '@/lib/current-user';
 import { LogoutButton } from './auth/logout-button';
@@ -11,6 +12,8 @@ async function currentUserAndCartCount(): Promise<{ user: CurrentUser | null; it
     const [user, cart] = await Promise.all([getCurrentUser(), getCart()]);
     return { user, itemCount: cart?.itemCount ?? 0 };
   } catch (error) {
+    // Next.js signals redirects and dynamic rendering with thrown errors; let those through.
+    unstable_rethrow(error);
     // The header is on every page; it falls back to the signed-out links if the API is unreachable.
     console.error(error);
     return { user: null, itemCount: 0 };
@@ -25,6 +28,11 @@ export async function AccountNav() {
       <CartLink itemCount={itemCount} />
       {user ? (
         <>
+          {user.role === 'ADMIN' && (
+            <Link href="/admin" className={linkClass}>
+              Admin
+            </Link>
+          )}
           <Link href="/orders" className={`${linkClass} hidden sm:block`}>
             Orders
           </Link>

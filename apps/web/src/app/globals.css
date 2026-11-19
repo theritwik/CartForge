@@ -9,6 +9,8 @@
   --accent: #4338ca;
   --accent-foreground: #ffffff;
   --danger: #b42318;
+  /* Chart marks. Validated against the light and dark chart surfaces. */
+  --chart: #4338ca;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -21,6 +23,7 @@
     --accent: #a5b4fc;
     --accent-foreground: #0e0e11;
     --danger: #f97066;
+    --chart: #7480f0;
   }
 }
 
@@ -35,6 +38,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-danger: var(--danger);
+  --color-chart: var(--chart);
 }
 
 html {

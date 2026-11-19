@@ -2,7 +2,7 @@
 
 A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL, and Redis, organised as a pnpm monorepo.
 
-**Status:** Milestones 1 to 7 are complete: project foundation, database, product catalog, user accounts, persistent cart, checkout with order management, and test-mode payments through Stripe Checkout. The admin area is not built yet. The Stripe integration has been tested with mocked Stripe API calls and with the local development simulator. It has **not yet been verified against real Stripe Test Mode**; see [Verifying with Stripe Test Mode](#verifying-with-stripe-test-mode).
+**Status:** Milestones 1 to 8 are complete: project foundation, database, product catalog, user accounts, persistent cart, checkout with order management, test-mode payments through Stripe Checkout, and an admin dashboard for running the store. The Stripe integration has been tested with mocked Stripe API calls and with the local development simulator. It has **not yet been verified against real Stripe Test Mode**; see [Verifying with Stripe Test Mode](#verifying-with-stripe-test-mode).
 
 ## What works today
 
@@ -11,6 +11,7 @@ A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL
 - Cart: add from product pages and listings, change quantities, remove items, and clear the cart. The cart is stored in PostgreSQL per account, so it follows the customer across devices.
 - Orders: checkout with a shipping address, stock reserved for 30 minutes, order history, order detail with status, and cancellation. Reservations that run out are released automatically.
 - Payments: Stripe Checkout in test mode, verified webhooks, reconciliation of amount and order, refunds for payments that arrive too late, and retry after a failed attempt.
+- Administration: a dashboard of sales, orders, and stock; product, category, and inventory management; and order fulfilment limited to permitted status changes.
 - Catalog API: product list, product detail, and categories, validated with Zod and limited to published products.
 - Auth API: Argon2id password hashing, session expiry and revocation, role checks for customers and administrators, CSRF protection, and login rate limiting.
 - PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed.
@@ -39,6 +40,7 @@ Product images are labelled placeholder drawings, not product photography.
 │   │   │   ├── lib/                 logger, Prisma client, Redis client, error class
 │   │   │   ├── middleware/          authentication, CSRF origin check, not-found and error handlers
 │   │   │   ├── modules/
+│   │   │   │   ├── admin/           administrator routes and dashboard figures
 │   │   │   │   ├── auth/            registration, login, logout, sessions, password hashing
 │   │   │   │   ├── cart/            cart routes, controller, service, schemas, tests
 │   │   │   │   ├── health/          health endpoint
@@ -57,11 +59,13 @@ Product images are labelled placeholder drawings, not product photography.
 │       ├── src/app/(shop)/          homepage, products, product detail, categories
 │       ├── src/app/(auth)/          sign-in and registration pages
 │       ├── src/app/account/         account page
+│       ├── src/app/admin/           admin dashboard, products, inventory, categories, orders
 │       ├── src/app/cart/            cart page
 │       ├── src/app/checkout/        checkout page
 │       ├── src/app/orders/          order history, order detail, and payment return pages
 │       ├── src/app/dev/             development payment simulator page
 │       ├── src/components/          header, footer, search form, account navigation
+│       ├── src/components/admin/    admin navigation, charts, forms, tables, status actions
 │       ├── src/components/auth/     sign-in, registration, and password forms, sign-out button
 │       ├── src/components/cart/     add-to-cart button, cart rows, clear-cart control, header cart link
 │       ├── src/components/checkout/ checkout form
@@ -288,6 +292,37 @@ This has not been done yet. To do it, without putting any key in chat, a commit,
 Leave both variables empty. The API logs that it is using the development simulator, and "Place order and pay" opens a local page labelled "Development simulator · not Stripe". Its buttons send the store signed events shaped like Stripe's, which go through the same verification and handling as real webhooks. No money moves and no card details are collected. The simulator is never available in production or when a key is set.
 
 See [docs/architecture.md](docs/architecture.md) for how payments, reservations, late payments, and refunds fit together.
+
+## Administration
+
+Sign in as an administrator (create one with `pnpm admin:create`) and open http://localhost:3000/admin. The header shows an **Admin** link to administrators only. Every endpoint below requires an administrator session; customers get `403` and anonymous requests `401`.
+
+| Endpoint                                            | Description                                                                           |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `GET /api/v1/admin/dashboard`                       | Revenue, pending payments, refunds, order and product counts, low stock, 14-day sales |
+| `GET /api/v1/admin/products`                        | All products; filters `q`, `status`, `categoryId`, `lowStock`                         |
+| `POST /api/v1/admin/products`                       | Create a product (price in paise)                                                     |
+| `GET /api/v1/admin/products/:id`                    | One product with stock, reserved, and available units                                 |
+| `PATCH /api/v1/admin/products/:id`                  | Edit catalog fields or status (archive, reactivate)                                   |
+| `POST /api/v1/admin/products/:id/stock-adjustments` | Add or remove stock: `{ "delta": 10 }` or `{ "delta": -3 }`                           |
+| `GET /api/v1/admin/categories`                      | Categories with product counts                                                        |
+| `POST /api/v1/admin/categories`                     | Create a category                                                                     |
+| `PATCH /api/v1/admin/categories/:id`                | Rename a category or change its slug                                                  |
+| `DELETE /api/v1/admin/categories/:id`               | Delete a category that has no products                                                |
+| `GET /api/v1/admin/orders`                          | All orders; filters `status`, `reference` (`#ABCD1234`), `email`                      |
+| `GET /api/v1/admin/orders/:id`                      | Items, shipping, customer, payments, and allowed next steps                           |
+| `POST /api/v1/admin/orders/:id/transitions`         | Change status: `{ "from": "PAID", "to": "PROCESSING" }`                               |
+
+Permitted order changes are awaiting payment → cancelled (stock released), and paid → processing → shipped → delivered. An administrator can never mark an order paid; only a verified payment does. Stock can never be reduced below the units reserved by unpaid orders.
+
+| Error code               | Status | Meaning                                                 |
+| ------------------------ | ------ | ------------------------------------------------------- |
+| `ALREADY_EXISTS`         | 409    | The slug, or a category's name, is already in use       |
+| `CATEGORY_HAS_PRODUCTS`  | 409    | Only empty categories can be deleted                    |
+| `STOCK_BELOW_RESERVED`   | 409    | The change would leave fewer units than are reserved    |
+| `STOCK_BELOW_ZERO`       | 409    | The change would remove more units than are in stock    |
+| `TRANSITION_NOT_ALLOWED` | 409    | The status change is not in the policy                  |
+| `ORDER_STATUS_CHANGED`   | 409    | The order changed since it was loaded; reload and retry |
 
 ## Tests and the test database
 
