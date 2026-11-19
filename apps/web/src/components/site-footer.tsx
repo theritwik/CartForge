@@ -6,8 +6,8 @@ export function SiteFooter() {
     <footer className="border-border mt-16 border-t">
       <div className="text-muted mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-sm sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <p className="max-w-md">
-          CartForge is a portfolio project. Product images are placeholders, and online payment is
-          not available yet.
+          CartForge is a portfolio project. Product images are placeholders, and payments run in
+          test mode: no real money moves.
         </p>
         <ul className="flex gap-6">
           <li>

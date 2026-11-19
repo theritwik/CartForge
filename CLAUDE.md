@@ -93,6 +93,9 @@ Do not push, deploy, delete important files, or run destructive operations (incl
 - Checkout requires an `Idempotency-Key` header and compares the client's `expectedTotalPaise` with the server's total. The client's figure is never used as the price.
 - Every write to a cart first locks the cart row (`lockCart` in the cart service). Adding to a cart never reserves stock. Stale cart items are flagged, not deleted.
 - Prisma's `upsert` is not safe for concurrent first inserts; use `createMany` with `skipDuplicates` when two requests may create the same row.
-- An order is marked paid only by a verified Stripe webhook, never by a client request.
+- An order is marked paid only by a verified Stripe webhook, never by a client request or a return page. The webhook route is registered before the JSON parser and origin check and is authenticated by its signature over the raw body.
+- Never hold a database transaction open across a Stripe call. Call Stripe through `paymentGateway` in the payments module, with an idempotency key derived from the payment id.
+- Money that cannot be applied to an order is marked `REFUND_PENDING` and refunded, never silently kept or used to fulfil an order whose stock was released.
+- Only Stripe test-mode keys are accepted. Without a key, the API uses the labelled development simulator; never describe it as Stripe.
 - Order items snapshot the product name and unit price at purchase time and are never updated.
 - CHECK constraints and triggers are hand-written in migration SQL. Prisma does not manage them; change them only through a new migration.

@@ -22,6 +22,45 @@ describe('parseEnv', () => {
     ).toMatchObject({ WEB_ORIGIN: 'https://shop.example.com' });
   });
 
+  describe('Stripe configuration', () => {
+    const stripeSource = {
+      ...validSource,
+      STRIPE_SECRET_KEY: 'sk_test_example',
+      STRIPE_WEBHOOK_SECRET: 'whsec_example',
+    };
+
+    it('accepts a test-mode key with a webhook secret', () => {
+      expect(parseEnv(stripeSource)).toMatchObject({ STRIPE_SECRET_KEY: 'sk_test_example' });
+    });
+
+    it('treats empty values as not set, which selects the development simulator', () => {
+      const env = parseEnv({ ...validSource, STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: '' });
+
+      expect(env.STRIPE_SECRET_KEY).toBeUndefined();
+    });
+
+    it.each(['sk_live_example', 'pk_test_example', 'rk_live_example'])(
+      'rejects the key %s',
+      (key) => {
+        expect(() => parseEnv({ ...stripeSource, STRIPE_SECRET_KEY: key })).toThrow(
+          /STRIPE_SECRET_KEY/,
+        );
+      },
+    );
+
+    it('requires the webhook secret when a key is set', () => {
+      expect(() => parseEnv({ ...stripeSource, STRIPE_WEBHOOK_SECRET: undefined })).toThrow(
+        /STRIPE_WEBHOOK_SECRET/,
+      );
+    });
+
+    it('refuses to run in production without a Stripe key', () => {
+      expect(() => parseEnv({ ...validSource, NODE_ENV: 'production' })).toThrow(
+        /STRIPE_SECRET_KEY/,
+      );
+    });
+  });
+
   it('converts the port to a number', () => {
     expect(parseEnv({ ...validSource, API_PORT: '8080' }).API_PORT).toBe(8080);
   });

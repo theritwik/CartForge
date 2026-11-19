@@ -43,6 +43,9 @@ enum PaymentStatus {
   PENDING
   SUCCEEDED
   FAILED
+  EXPIRED
+  // Money was collected for an order that could not be fulfilled; a refund is owed.
+  REFUND_PENDING
   REFUNDED
 
   @@map("payment_status")
@@ -181,9 +184,9 @@ model Order {
   createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user    User        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  items   OrderItem[]
-  payment Payment?
+  user     User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items    OrderItem[]
+  payments Payment[]
 
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
@@ -209,16 +212,38 @@ model OrderItem {
   @@map("order_items")
 }
 
+// One row per payment attempt. An order may have several attempts but only one
+// PENDING at a time (partial unique index in the migration SQL).
 model Payment {
-  id                    String        @id @default(uuid(7)) @db.Uuid
-  orderId               String        @unique @map("order_id") @db.Uuid
-  stripePaymentIntentId String        @unique @map("stripe_payment_intent_id")
-  status                PaymentStatus @default(PENDING)
-  amountPaise           Int           @map("amount_paise")
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                      String        @id @default(uuid(7)) @db.Uuid
+  orderId                 String        @map("order_id") @db.Uuid
+  status                  PaymentStatus @default(PENDING)
+  amountPaise             Int           @map("amount_paise")
+  // Set once the hosted checkout page exists at the payment provider.
+  stripeCheckoutSessionId String?       @unique @map("stripe_checkout_session_id")
+  checkoutUrl             String?       @map("checkout_url")
+  checkoutExpiresAt       DateTime      @map("checkout_expires_at") @db.Timestamptz(3)
+  // Set when the provider reports the money as collected.
+  stripePaymentIntentId   String?       @unique @map("stripe_payment_intent_id")
+  stripeRefundId          String?       @map("stripe_refund_id")
+  // Why the attempt failed or must be refunded, for support and reconciliation.
+  failureReason           String?       @map("failure_reason")
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
+  @@index([orderId])
+  @@index([status])
   @@map("payments")
+}
+
+// Webhook events already handled. Inserting the event id in the same transaction
+// as its effects makes a redelivered event a no-op.
+model ProcessedStripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz(3)
+
+  @@map("processed_stripe_events")
 }

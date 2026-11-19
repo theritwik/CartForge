@@ -7,6 +7,7 @@ import {
   listOrdersQuerySchema,
   orderParamsSchema,
 } from './orders.schemas.js';
+import { closeOpenPaymentAttempts } from '../payments/payments.service.js';
 import { cancelOrder, checkout, getOrder, listOrders } from './orders.service.js';
 
 // Every handler takes the user from the session, and every query is limited to that user's orders.
@@ -33,5 +34,8 @@ export async function getOrderHandler(req: Request, res: Response): Promise<void
 
 export async function cancelOrderHandler(req: Request, res: Response): Promise<void> {
   const { orderId } = orderParamsSchema.parse(req.params);
-  res.json({ data: await cancelOrder(authenticatedUser(req).id, orderId) });
+  await cancelOrder(authenticatedUser(req).id, orderId);
+  // After the order is cancelled, so a failure here cannot undo the cancellation.
+  await closeOpenPaymentAttempts(orderId);
+  res.json({ data: await getOrder(authenticatedUser(req).id, orderId) });
 }
