@@ -4,6 +4,7 @@ import { parseEnv } from './env.js';
 const validSource = {
   DATABASE_URL: 'postgresql://user:password@localhost:5432/cartforge',
   REDIS_URL: 'redis://localhost:6379',
+  CACHE_REDIS_URL: 'redis://localhost:6380',
   WEB_ORIGIN: 'http://localhost:3000',
 };
 
@@ -20,6 +21,15 @@ describe('parseEnv', () => {
     expect(
       parseEnv({ ...validSource, WEB_ORIGIN: 'https://shop.example.com/some/path' }),
     ).toMatchObject({ WEB_ORIGIN: 'https://shop.example.com' });
+  });
+
+  it('requires the cache to be configured apart from the rate-limit Redis', () => {
+    expect(() => parseEnv({ ...validSource, CACHE_REDIS_URL: undefined })).toThrow(
+      /CACHE_REDIS_URL/,
+    );
+    expect(() => parseEnv({ ...validSource, CACHE_REDIS_URL: validSource.REDIS_URL })).toThrow(
+      /must not be the same as REDIS_URL/,
+    );
   });
 
   describe('Stripe configuration', () => {

@@ -3,7 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   app,
-  clearRateLimits,
+  resetRedisState,
   del,
   patch,
   post,
@@ -74,7 +74,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await truncateAllTables(prisma);
-  await clearRateLimits();
+  await resetRedisState();
 
   const category = await prisma.category.create({ data: { name: 'Kitchen', slug: 'kitchen' } });
   const createProduct = (

@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   app,
-  clearRateLimits,
+  resetRedisState,
   post,
   signUp,
   type SignedUpUser,
@@ -170,7 +170,7 @@ beforeEach(async () => {
   ({ createSession, createRefund, expireSession } = mockStripe());
 
   await truncateAllTables(prisma);
-  await clearRateLimits();
+  await resetRedisState();
   const category = await prisma.category.create({ data: { name: 'Kitchen', slug: 'kitchen' } });
   kettle = await prisma.product.create({
     data: {

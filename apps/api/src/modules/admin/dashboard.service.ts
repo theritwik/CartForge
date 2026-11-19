@@ -57,6 +57,9 @@ export async function getDashboard() {
       LEFT JOIN orders o
         ON (o.created_at AT TIME ZONE 'Asia/Kolkata')::date = day::date
        AND o.status::text IN ('PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED')
+       -- The same window as a plain range on created_at, so the index limits the scan.
+       AND o.created_at >= (((now() AT TIME ZONE 'Asia/Kolkata')::date - ${TREND_DAYS - 1}::int)::timestamp
+                            AT TIME ZONE 'Asia/Kolkata')
       GROUP BY day
       ORDER BY day
     `,

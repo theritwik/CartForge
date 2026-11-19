@@ -2,19 +2,19 @@
 
 Milestones are built in order, one at a time. A milestone is complete only when its exit criteria pass. Status values: `planned`, `in progress`, `done`.
 
-| #   | Milestone                                               | Status  |
-| --- | ------------------------------------------------------- | ------- |
-| 0   | Planning and architecture                               | done    |
-| 1   | Monorepo foundation                                     | done    |
-| 2   | Database foundation                                     | done    |
-| 3   | Product catalog                                         | done    |
-| 4   | Authentication and users                                | done    |
-| 5   | Cart and password change                                | done    |
-| 6   | Order management and inventory                          | done    |
-| 7   | Payments                                                | done    |
-| 8   | Admin dashboard                                         | done    |
-| 9   | Caching and hardening                                   | planned |
-| 10  | End-to-end tests, containers, and release documentation | planned |
+| #   | Milestone                                                              | Status  |
+| --- | ---------------------------------------------------------------------- | ------- |
+| 0   | Planning and architecture                                              | done    |
+| 1   | Monorepo foundation                                                    | done    |
+| 2   | Database foundation                                                    | done    |
+| 3   | Product catalog                                                        | done    |
+| 4   | Authentication and users                                               | done    |
+| 5   | Cart and password change                                               | done    |
+| 6   | Order management and inventory                                         | done    |
+| 7   | Payments                                                               | done    |
+| 8   | Admin dashboard                                                        | done    |
+| 9   | Caching and database performance                                       | done    |
+| 10  | API hardening, end-to-end tests, containers, and release documentation | planned |
 
 ## M0 - Planning and architecture
 
@@ -115,35 +115,46 @@ Exit criteria: an admin can manage the catalog, stock, and orders through the UI
 
 Not done: refunding or cancelling orders that have been paid. Further admin improvements are listed in the [backlog](#backlog).
 
-## M9 - Caching and hardening
+## M9 - Caching and database performance
 
-- Redis read-through cache for catalog endpoints with invalidation on writes.
+- Cache-aside Redis cache for the product list, product detail, and categories, with generation-versioned keys, TTLs, Zod-validated entries, and invalidation on every catalog write. Price, status, and stock are always read from PostgreSQL.
+- Fallback to PostgreSQL when the cache is unreachable or an entry is unreadable, with rate-limited logging. The cache runs on its own Redis instance with bounded memory and eviction, so rate-limit counters are never evicted.
+- Index review with `EXPLAIN ANALYZE`: trigram indexes for search, a price index for catalog-wide sorting, and an orders `(created_at, id)` index with a date-bounded sales trend query for the dashboard.
+- Reproducible benchmarks on an isolated 50,000-product dataset, with baseline, indexes-only, cache-hit, cache-miss, and cache-down results in `docs/performance.md`.
+- Tests: hits and misses, TTL expiry, key normalisation, invalidation on product and category changes, live prices and stock when invalidation fails, malformed entries, Redis outages, concurrent requests, and checkout pricing from the database.
+
+Exit criteria: cache invalidation is covered by tests; the API works correctly with the cache empty or Redis unreachable; measurements are recorded and reproducible.
+
+Not done: the security hardening originally planned for this milestone (general API rate limiting, request size limits, header and cookie review, error and log review, security checklist). It was outside the requested scope and moved to M10 unchanged.
+
+## M10 - API hardening, end-to-end tests, containers, and release documentation
+
+Moved from M9:
+
 - General API rate limiting, request size limits, review of headers and cookie settings.
-- Database index review based on the queries actually written.
 - Review of error responses and logs for leaked detail.
 
-Exit criteria: cache invalidation is covered by tests; the API works correctly with Redis cache empty; security review checklist is recorded in `docs/`.
-
-## M10 - End-to-end tests, containers, and release documentation
+Planned for M10:
 
 - Playwright suite for the main journeys: register, browse, cart, checkout with a test card, order history, admin product edit.
 - Production Dockerfiles for `web` and `api`; compose profile to run the full stack.
 - CI runs the end-to-end suite.
 - Final README: features, architecture summary, setup, test commands, screenshots.
 
-Exit criteria: full stack starts from containers; all test levels pass in CI; documentation matches what is implemented.
+Exit criteria: security review checklist is recorded in `docs/`; full stack starts from containers; all test levels pass in CI; documentation matches what is implemented.
 
 ## Backlog
 
-Improvements identified after M8. None is implemented. An item becomes work only when it is scheduled into a milestone; those marked with a milestone already fit its stated scope.
+Improvements identified after M8 and M9. None is implemented. An item becomes work only when it is scheduled into a milestone; those marked with a milestone already fit its stated scope.
 
-| Item                        | What it involves                                                                                                                                                                                       | Fits                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
-| Stock adjustment history    | A table recording each adjustment: product, change, resulting stock, administrator, reason, and time. Written in the same transaction as the adjustment, and shown on the product and inventory pages. | Unscheduled                    |
-| Product image management    | Uploading, ordering, replacing, and removing product images from the admin area, with storage outside the database and validation of file type and size. Products created today have no image.         | Unscheduled                    |
-| Administrative activity log | A record of every state-changing admin action (product, category, stock, and order changes) with the administrator and time, viewable by administrators. Overlaps with the stock adjustment history.   | Unscheduled                    |
-| Admin API rate limiting     | Per-administrator limits on `/api/v1/admin` writes, using the existing Redis rate limiter.                                                                                                             | M9 (general API rate limiting) |
-| Automated browser tests     | A committed Playwright suite in CI covering the storefront, checkout, payment simulator, and admin journeys. The browser checks so far were scripted by hand and are not in the repository.            | M10 (end-to-end tests)         |
+| Item                        | What it involves                                                                                                                                                                                       | Fits                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| Stock adjustment history    | A table recording each adjustment: product, change, resulting stock, administrator, reason, and time. Written in the same transaction as the adjustment, and shown on the product and inventory pages. | Unscheduled                     |
+| Product image management    | Uploading, ordering, replacing, and removing product images from the admin area, with storage outside the database and validation of file type and size. Products created today have no image.         | Unscheduled                     |
+| Administrative activity log | A record of every state-changing admin action (product, category, stock, and order changes) with the administrator and time, viewable by administrators. Overlaps with the stock adjustment history.   | Unscheduled                     |
+| Admin API rate limiting     | Per-administrator limits on `/api/v1/admin` writes, using the existing Redis rate limiter.                                                                                                             | M10 (general API rate limiting) |
+| Catalog search improvements | Full-text or prefix search for terms shorter than three characters, and keyset pagination for deep pages. See `performance.md`.                                                                        | Unscheduled                     |
+| Automated browser tests     | A committed Playwright suite in CI covering the storefront, checkout, payment simulator, and admin journeys. The browser checks so far were scripted by hand and are not in the repository.            | M10 (end-to-end tests)          |
 
 ## Out of scope
 

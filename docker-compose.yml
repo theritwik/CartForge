@@ -19,10 +19,34 @@ services:
 
   redis:
     image: redis:8-alpine
+    # Rate-limit counters. No memory limit and the default noeviction policy, so a counter
+    # is never removed before its window ends.
     ports:
       - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis-cache:
+    image: redis:8-alpine
+    # Catalog cache only. Bounded memory: when full, keys with a TTL are evicted soonest-expiring
+    # first, which spares the catalog generation counter. Not persisted; it starts empty.
+    command:
+      - redis-server
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - volatile-ttl
+      - --save
+      - ''
+      - --appendonly
+      - 'no'
+    ports:
+      - '127.0.0.1:${CACHE_REDIS_PORT:-6380}:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
