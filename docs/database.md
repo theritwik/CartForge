@@ -2,7 +2,7 @@
 
 PostgreSQL 17, managed with Prisma. The schema is defined in `packages/db/prisma/schema.prisma` and applied through migrations in `packages/db/prisma/migrations`.
 
-The tables were created in Milestone 2. The catalog, accounts, cart, and orders use them; the `payments` table is not written to until the payments milestone.
+The tables were created in Milestone 2 and extended by later migrations (see the migration history below).
 
 ## Relationships
 
@@ -17,7 +17,7 @@ erDiagram
     Product ||--o{ OrderItem : "sold as"
     Cart ||--o{ CartItem : "contains"
     Order ||--|{ OrderItem : "contains"
-    Order ||--o| Payment : "paid by"
+    Order ||--o{ Payment : "paid by"
 
     User {
         uuid id PK
@@ -103,7 +103,7 @@ erDiagram
 | Product - OrderItem    | one-to-many | Refused: a product that has been ordered cannot be deleted |
 | Cart - CartItem        | one-to-many | Items are deleted                                          |
 | Order - OrderItem      | one-to-many | Items are deleted                                          |
-| Order - Payment        | one-to-one  | Refused while a payment exists                             |
+| Order - Payment        | one-to-many | Refused while a payment exists                             |
 
 ## Conventions
 
@@ -119,7 +119,7 @@ erDiagram
 | `user_role`      | `CUSTOMER`, `ADMIN`                                                                                 | `CUSTOMER`        |
 | `product_status` | `DRAFT`, `ACTIVE`, `ARCHIVED`                                                                       | `DRAFT`           |
 | `order_status`   | `PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `EXPIRED`, `REFUNDED` | `PENDING_PAYMENT` |
-| `payment_status` | `PENDING`, `SUCCEEDED`, `FAILED`, `REFUNDED`                                                        | `PENDING`         |
+| `payment_status` | `PENDING`, `SUCCEEDED`, `FAILED`, `EXPIRED`, `REFUND_PENDING`, `REFUNDED`                           | `PENDING`         |
 
 Order status transitions are described in `architecture.md` and enforced in the orders service.
 
@@ -163,7 +163,20 @@ A purchase-time snapshot: `product_name` and `unit_price_paise` are copied from 
 
 ### payments
 
-At most one per order (`order_id` is unique) and one per Stripe PaymentIntent (`stripe_payment_intent_id` is unique). `amount_paise` must be positive.
+One row per payment attempt. An order can have several (a failed or abandoned attempt can be retried), but a partial unique index, `payments_one_pending_per_order`, allows only one `PENDING` attempt per order at a time. `stripe_checkout_session_id` and `stripe_payment_intent_id` are each unique, so a Stripe session or payment can belong to one attempt only. `amount_paise` must be positive. `failure_reason` records why an attempt failed or why its money must be returned (`AMOUNT_MISMATCH`, `ORDER_NOT_AWAITING_PAYMENT`, and so on). Card details are never stored: Stripe holds them.
+
+| Status           | Meaning                                                          |
+| ---------------- | ---------------------------------------------------------------- |
+| `PENDING`        | Checkout session open, or being created                          |
+| `SUCCEEDED`      | Paid and applied to the order                                    |
+| `FAILED`         | The payment was declined, or Stripe rejected the session request |
+| `EXPIRED`        | The Checkout session closed unpaid, or the order was cancelled   |
+| `REFUND_PENDING` | Money received that cannot be applied; a refund is owed          |
+| `REFUNDED`       | That money has been returned                                     |
+
+### processed_stripe_events
+
+The id of every webhook event that has been handled, inserted in the same transaction as the event's effects. A redelivered event finds its id already present and is skipped.
 
 ## Constraints defined in SQL
 
@@ -181,10 +194,11 @@ After changing the schema, run `pnpm --filter @cartforge/db build` so the API se
 
 ### Migration history
 
-| Migration        | Change                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `init`           | All tables, enums, indexes, CHECK constraints, and the order-item immutability trigger               |
-| `order_checkout` | `PROCESSING` and `EXPIRED` order statuses; `orders.idempotency_key` with a unique index per customer |
+| Migration          | Change                                                                                                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`             | All tables, enums, indexes, CHECK constraints, and the order-item immutability trigger                                                                          |
+| `order_checkout`   | `PROCESSING` and `EXPIRED` order statuses; `orders.idempotency_key` with a unique index per customer                                                            |
+| `payment_attempts` | Several payment attempts per order (one pending at a time), Checkout session fields, `EXPIRED` and `REFUND_PENDING` payment statuses, `processed_stripe_events` |
 
 ## Seed data
 

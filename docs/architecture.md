@@ -138,7 +138,7 @@ A module omits any file it does not need.
 | inventory | Stock levels, reservations, release, admin stock adjustments                                                                                      |
 | cart      | Per-user cart contents and totals                                                                                                                 |
 | orders    | Checkout, order lifecycle, order history, admin order management                                                                                  |
-| payments  | Stripe PaymentIntent creation, webhook verification and handling                                                                                  |
+| payments  | Stripe Checkout sessions for orders, webhook verification and handling, refunds of payments that cannot be applied                                |
 | health    | Liveness and dependency checks for PostgreSQL and Redis. Served at `/health` for infrastructure probes and `/api/v1/health` through the web proxy |
 
 ### 4.3 API conventions
@@ -241,20 +241,21 @@ Redis is not a source of truth. The API must behave correctly, only slower, when
 
 The schema is implemented in `packages/db` and documented in full, with a relationship diagram, in [database.md](database.md).
 
-| Entity       | Key fields                                                                                        | Notes                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| User         | email (unique), passwordHash, name, role                                                          |                                                                                     |
-| Session      | userId, tokenHash (unique), createdAt, lastUsedAt, expiresAt                                      | Stores only the hash of the session token; deleted on logout or revocation          |
-| Category     | name (unique), slug (unique)                                                                      |                                                                                     |
-| Product      | categoryId, name, slug (unique), description, pricePaise, status, stockQuantity, reservedQuantity | Available = stockQuantity - reservedQuantity. Archived, never deleted, once ordered |
-| ProductImage | productId, url, altText, position                                                                 | Position 0 is the primary image                                                     |
-| Cart         | userId (unique)                                                                                   | One cart per user                                                                   |
-| CartItem     | cartId, productId, quantity                                                                       | Unique on (cartId, productId)                                                       |
-| Order        | userId, idempotencyKey, status, totalPaise, shipping address fields, reservationExpiresAt         |                                                                                     |
-| OrderItem    | orderId, productId, productName, unitPricePaise, quantity                                         | Immutable snapshot of name and price at purchase                                    |
-| Payment      | orderId (unique), stripePaymentIntentId (unique), status, amountPaise                             |                                                                                     |
+| Entity               | Key fields                                                                                                                       | Notes                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| User                 | email (unique), passwordHash, name, role                                                                                         |                                                                                     |
+| Session              | userId, tokenHash (unique), createdAt, lastUsedAt, expiresAt                                                                     | Stores only the hash of the session token; deleted on logout or revocation          |
+| Category             | name (unique), slug (unique)                                                                                                     |                                                                                     |
+| Product              | categoryId, name, slug (unique), description, pricePaise, status, stockQuantity, reservedQuantity                                | Available = stockQuantity - reservedQuantity. Archived, never deleted, once ordered |
+| ProductImage         | productId, url, altText, position                                                                                                | Position 0 is the primary image                                                     |
+| Cart                 | userId (unique)                                                                                                                  | One cart per user                                                                   |
+| CartItem             | cartId, productId, quantity                                                                                                      | Unique on (cartId, productId)                                                       |
+| Order                | userId, idempotencyKey, status, totalPaise, shipping address fields, reservationExpiresAt                                        |                                                                                     |
+| OrderItem            | orderId, productId, productName, unitPricePaise, quantity                                                                        | Immutable snapshot of name and price at purchase                                    |
+| Payment              | orderId, status, amountPaise, stripeCheckoutSessionId (unique), stripePaymentIntentId (unique), checkoutExpiresAt, failureReason | One row per payment attempt; at most one `PENDING` per order                        |
+| ProcessedStripeEvent | id (Stripe event id), type, processedAt                                                                                          | Webhook idempotency                                                                 |
 
-A table recording processed Stripe event IDs, for webhook idempotency, is added in the payments milestone when it is first used.
+`ProcessedStripeEvent` records each handled webhook event id, so a redelivered event has no effect.
 
 Rules:
 
@@ -291,16 +292,49 @@ The client sends a shipping address, the total it displayed (`expectedTotalPaise
 
 **Cancellation.** A customer can cancel their own order while it is `PENDING_PAYMENT`. It uses the same conditional status change, then releases the stock.
 
-### 6.2 Payment confirmation
+### 6.2 Payments
 
-`confirmOrderPayment` in the orders service marks a `PENDING_PAYMENT` order `PAID` and converts its reservation into a sale by decreasing both `reservedQuantity` and `stockQuantity`, in one transaction. It returns false and changes nothing for an order in any other state, so a repeated notification is harmless. No HTTP route calls it. The payments milestone will call it from the Stripe webhook:
+Payments use **Stripe Checkout** in test mode: the customer pays on Stripe's hosted page, so card details never reach CartForge. Checkout fits the existing design because the order and its total already exist when payment starts; the hosted page only collects that fixed amount.
 
-1. The browser confirms the payment with Stripe Elements.
-2. Stripe sends `payment_intent.succeeded` (or `payment_intent.payment_failed`) to the webhook endpoint.
-3. The API verifies the signature against the raw request body, then records the event ID in a processed-events table. A duplicate ID is acknowledged and ignored.
-4. On success the webhook calls `confirmOrderPayment`.
+**Starting a payment** (`POST /api/v1/orders/:orderId/payments`, signed in, CSRF-checked) runs in three steps so that no database transaction is open during the network call to Stripe:
 
-The success page shown to the user is informational. Only the webhook changes order state. What to do when a payment succeeds for an order that has already expired (refund, or re-reserve if stock allows) is decided in the payments milestone.
+1. In a transaction, lock the order row, check it belongs to the caller, is `PENDING_PAYMENT`, and still holds its reservation, and record a `Payment` attempt (`PENDING`) with the order total. An attempt that is still open is reused instead. The order's reservation is extended to cover the Checkout session (31 minutes, Stripe's minimum is 30) plus 5 minutes for the webhook to arrive.
+2. With no transaction open, create the Checkout session at Stripe. The request carries the payment id as its idempotency key, so a retry after a timeout returns the session Stripe already created rather than a second one.
+3. Store the session id and URL on the attempt and return the URL.
+
+If Stripe cannot be reached the attempt stays open and the same request can be retried. If Stripe rejects the request outright the attempt is marked `FAILED` so the next one starts fresh. An order allows three attempts, because each one extends the stock reservation.
+
+**Webhook** (`POST /api/v1/payments/webhook`). Stripe calls it server to server, so it has no session cookie or `Origin`; it is registered before the JSON parser and the origin check, and is authenticated by verifying the `Stripe-Signature` header against the raw request body. An invalid signature is answered 400 and nothing is changed.
+
+Each verified event is handled in one transaction that first inserts the event id into `processed_stripe_events` (`INSERT ... ON CONFLICT DO NOTHING`). If the id was already there the event is skipped. Because the record is part of the same transaction as the effects, a failure rolls back both and Stripe's redelivery starts clean; the endpoint answers 500 so that Stripe does retry.
+
+| Event                                      | Effect                                                                                 |
+| ------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `checkout.session.completed` (paid)        | Reconcile, then mark the order `PAID` and the attempt `SUCCEEDED`, or require a refund |
+| `checkout.session.async_payment_succeeded` | Same as above                                                                          |
+| `checkout.session.async_payment_failed`    | Attempt `FAILED`; reservation shortened to 10 minutes so the customer can retry        |
+| `checkout.session.expired`                 | Attempt `EXPIRED`; reservation shortened to 10 minutes                                 |
+| `checkout.session.completed` (unpaid)      | Ignored: a delayed payment method has not paid yet                                     |
+
+**Applying a payment.** The handler locks the payment row, so two events about one attempt are applied one after the other, then reconciles the session against what was stored: amount equal to both the attempt and the order total, currency `inr`, order id in the metadata, and the same Checkout session. If everything matches it calls `confirmOrderPayment` in the same transaction. That is a conditional update (`PENDING_PAYMENT` to `PAID`) followed by converting the reservation into a sale, so stock is committed once however many events race.
+
+**When the money cannot be applied** (the order already expired, was cancelled, or was paid by another attempt, or reconciliation failed), the order is left as it is and the attempt is marked `REFUND_PENDING` with the reason. After the transaction commits, the API asks Stripe for a refund, keyed by the payment id so it is never refunded twice, and marks the attempt `REFUNDED`. If Stripe is unreachable the attempt stays `REFUND_PENDING` and a run every minute retries it. A late payment is therefore never fulfilled from stock that may already have been sold to someone else.
+
+**Background workers across several API instances.** Each API process runs the order-expiry sweep and the refund retry every minute. Running them in several instances at once is safe, though redundant:
+
+- Expiry is a conditional status change, so exactly one instance releases an order's stock.
+- Every refund call for a payment carries the same idempotency key, so concurrent attempts produce one Stripe refund, and the status moves from `REFUND_PENDING` to `REFUNDED` once. Stripe keeps idempotency keys for 24 hours; after that, a refund that already happened is reported as `charge_already_refunded`, and the gateway records the existing refund instead of failing.
+
+**Ordering and races**
+
+- A payment arriving after an expiry or failure event for the same session is still accepted if the order is still awaiting payment.
+- An expiry or failure event arriving after the payment changes nothing: it only acts on a `PENDING` attempt.
+- Payment confirmation and reservation expiry both start with a conditional update on the order status, so exactly one wins: the order ends `PAID` with its stock sold, or `EXPIRED` with its stock released and the payment refunded.
+- Cancelling an order closes any open Checkout session at Stripe and marks the attempt `EXPIRED`. If the customer manages to pay anyway, the payment is refunded.
+
+**Return pages.** Stripe sends the customer to `/orders/:id/payment/success` or `/orders/:id/payment/cancelled`. Neither page changes anything: the success page shows what the server has confirmed so far and re-reads the order every two seconds until the webhook has been processed.
+
+**Development simulator.** When `STRIPE_SECRET_KEY` is not set (allowed only outside production), the API uses a local stand-in for Stripe's hosted page, at `/dev/payment-simulator/:sessionId`, clearly labelled as not Stripe. Its buttons build events shaped like Stripe's, sign them with a webhook secret generated at startup, and pass them through the same signature verification and handling code as a real delivery. With a Stripe key configured the simulator routes are not mounted.
 
 ### 6.3 Order status
 
@@ -383,7 +417,6 @@ Node.js uses an LTS release: `.nvmrc` pins the version used for development and 
 
 ## 11. Open decisions
 
-| Decision                   | Current leaning                                    | Decided in        |
-| -------------------------- | -------------------------------------------------- | ----------------- |
-| Stripe integration surface | PaymentIntents with Stripe Elements                | M7                |
-| `packages/shared`          | Create only if Zod schemas are needed by both apps | When first needed |
+| Decision          | Current leaning                                    | Decided in        |
+| ----------------- | -------------------------------------------------- | ----------------- |
+| `packages/shared` | Create only if Zod schemas are needed by both apps | When first needed |

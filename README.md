@@ -2,7 +2,7 @@
 
 A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL, and Redis, organised as a pnpm monorepo.
 
-**Status:** Milestones 1 to 6 are complete: project foundation, database, a browsable product catalog, user accounts, a persistent shopping cart, and checkout with order management. Online payment and the admin area are not built yet, so orders stay unpaid and expire. See [docs/roadmap.md](docs/roadmap.md) for what is planned, [docs/architecture.md](docs/architecture.md) for the design, and [docs/database.md](docs/database.md) for the schema.
+**Status:** Milestones 1 to 7 are complete: project foundation, database, product catalog, user accounts, persistent cart, checkout with order management, and test-mode payments through Stripe Checkout. The admin area is not built yet. The Stripe integration has been tested with mocked Stripe API calls and with the local development simulator. It has **not yet been verified against real Stripe Test Mode**; see [Verifying with Stripe Test Mode](#verifying-with-stripe-test-mode).
 
 ## What works today
 
@@ -10,6 +10,7 @@ A full-stack e-commerce application: Next.js storefront, Express API, PostgreSQL
 - Accounts: registration, sign-in, sign-out, sign-out of all devices, password change, and an account page, using database-backed sessions in an HttpOnly cookie.
 - Cart: add from product pages and listings, change quantities, remove items, and clear the cart. The cart is stored in PostgreSQL per account, so it follows the customer across devices.
 - Orders: checkout with a shipping address, stock reserved for 30 minutes, order history, order detail with status, and cancellation. Reservations that run out are released automatically.
+- Payments: Stripe Checkout in test mode, verified webhooks, reconciliation of amount and order, refunds for payments that arrive too late, and retry after a failed attempt.
 - Catalog API: product list, product detail, and categories, validated with Zod and limited to published products.
 - Auth API: Argon2id password hashing, session expiry and revocation, role checks for customers and administrators, CSRF protection, and login rate limiting.
 - PostgreSQL schema for users, sessions, catalog, carts, orders, and payments, with migrations, database-level constraints, and a development seed.
@@ -43,6 +44,7 @@ Product images are labelled placeholder drawings, not product photography.
 │   │   │   │   ├── health/          health endpoint
 │   │   │   │   ├── inventory/       stock reservation, release, and sale
 │   │   │   │   ├── orders/          checkout, order history, cancellation, expiry
+│   │   │   │   ├── payments/        Stripe Checkout, webhook, refunds, development simulator
 │   │   │   │   ├── products/        catalog routes, controller, service, schemas, tests
 │   │   │   │   └── users/           current user and administrator user list
 │   │   │   ├── app.ts               Express app assembly
@@ -57,12 +59,14 @@ Product images are labelled placeholder drawings, not product photography.
 │       ├── src/app/account/         account page
 │       ├── src/app/cart/            cart page
 │       ├── src/app/checkout/        checkout page
-│       ├── src/app/orders/          order history and order detail pages
+│       ├── src/app/orders/          order history, order detail, and payment return pages
+│       ├── src/app/dev/             development payment simulator page
 │       ├── src/components/          header, footer, search form, account navigation
 │       ├── src/components/auth/     sign-in, registration, and password forms, sign-out button
 │       ├── src/components/cart/     add-to-cart button, cart rows, clear-cart control, header cart link
 │       ├── src/components/checkout/ checkout form
 │       ├── src/components/orders/   status badge, progress tracker, cancel control
+│       ├── src/components/payments/ pay button, payment confirmation polling, simulator controls
 │       ├── src/components/catalog/  product card and grid, filters, sort, pagination, gallery
 │       ├── src/lib/                 API clients, current user lookup, form schemas, URL filter parsing
 │       └── next.config.ts           API proxy and environment validation
@@ -102,10 +106,10 @@ pnpm dev
 
 ## Configuration
 
-| File                  | Read by                                    | Variables                                                                                                                                           |
-| --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.env`                | Docker Compose, the API, Prisma CLI, tests | `POSTGRES_*`, `REDIS_PORT`, `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `WEB_ORIGIN`, `TRUST_PROXY_HOPS`, `DATABASE_URL`, `REDIS_URL`, `TEST_DATABASE_URL` |
-| `apps/web/.env.local` | The web app                                | `API_URL`                                                                                                                                           |
+| File                  | Read by                                    | Variables                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.env`                | Docker Compose, the API, Prisma CLI, tests | `POSTGRES_*`, `REDIS_PORT`, `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `WEB_ORIGIN`, `TRUST_PROXY_HOPS`, `DATABASE_URL`, `REDIS_URL`, `TEST_DATABASE_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
+| `apps/web/.env.local` | The web app                                | `API_URL`                                                                                                                                                                                         |
 
 The API and the web app validate their configuration at startup and refuse to start if it is invalid. The values in the example files are for local development only.
 
@@ -242,6 +246,48 @@ It returns `201` with the order, or `200` with the same order if the key was alr
 | `ORDER_NOT_FOUND`       | 404    | No such order belongs to the caller                                    |
 
 Order statuses are `PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `EXPIRED`, and `REFUNDED`. See [docs/architecture.md](docs/architecture.md) for the lifecycle and the concurrency design.
+
+## Payments
+
+Payments use Stripe Checkout in **test mode only**: the API refuses to start with a live key. The customer pays on Stripe's hosted page, so card details never reach CartForge, and an order becomes `PAID` only when a verified webhook confirms the payment.
+
+| Endpoint                                | Access    | Description                                                 |
+| --------------------------------------- | --------- | ----------------------------------------------------------- |
+| `POST /api/v1/orders/:orderId/payments` | Signed in | Start or resume payment for an order; returns `checkoutUrl` |
+| `POST /api/v1/payments/webhook`         | Stripe    | Signed webhook endpoint; no cookie or `Origin` required     |
+
+Errors from starting a payment: `ORDER_NOT_FOUND` (404), `ORDER_NOT_PAYABLE` (409, the order is no longer awaiting payment), `PAYMENT_ATTEMPTS_EXHAUSTED` (409, three attempts used), and `PAYMENT_PROVIDER_UNAVAILABLE` (502, safe to retry).
+
+| Variable                | Purpose                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `STRIPE_SECRET_KEY`     | Stripe test-mode secret key (`sk_test_...`). Leave empty to use the simulator. |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret (`whsec_...`). Required when a key is set.              |
+
+### Verifying with Stripe Test Mode
+
+This has not been done yet. To do it, without putting any key in chat, a commit, or the command line:
+
+1. In the Stripe dashboard, switch to **Test mode** and copy the test secret key (`sk_test_...`) from Developers → API keys. Never use a live key; the API refuses to start with one.
+2. Paste it into your local, git-ignored `.env` as `STRIPE_SECRET_KEY`.
+3. Install the Stripe CLI, run `stripe login`, then start forwarding webhooks:
+
+   ```bash
+   stripe listen --forward-to localhost:4000/api/v1/payments/webhook --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired
+   ```
+
+   It prints a signing secret (`whsec_...`). Put it in `.env` as `STRIPE_WEBHOOK_SECRET`.
+
+4. Run `pnpm dev`. The API should not log that it is using the simulator.
+5. Place an order and pay with test card `4242 4242 4242 4242`, any future expiry, and any CVC. The order should become Paid within a few seconds and `stripe listen` should show a `200` for `checkout.session.completed`.
+6. Check the other paths: card `4000 0000 0000 0002` (declined, order stays payable), leaving the Stripe page with its back link (cancellation page with retry), and running `stripe trigger checkout.session.completed` (an event for no known payment, which is acknowledged and ignored).
+7. Check a late payment: open the payment page, then in a database client set the order's `reservation_expires_at` to the past, reload the order page (it becomes Expired), and pay. The payment should be refunded, visible in the Stripe dashboard under Payments.
+8. Afterwards, remove both values from `.env` and roll the test key in the dashboard if it was exposed anywhere.
+
+### Without a Stripe account
+
+Leave both variables empty. The API logs that it is using the development simulator, and "Place order and pay" opens a local page labelled "Development simulator · not Stripe". Its buttons send the store signed events shaped like Stripe's, which go through the same verification and handling as real webhooks. No money moves and no card details are collected. The simulator is never available in production or when a key is set.
+
+See [docs/architecture.md](docs/architecture.md) for how payments, reservations, late payments, and refunds fit together.
 
 ## Tests and the test database
 

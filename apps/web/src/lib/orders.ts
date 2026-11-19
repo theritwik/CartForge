@@ -13,6 +13,14 @@ export const orderStatusSchema = z.enum([
 ]);
 export type OrderStatus = z.infer<typeof orderStatusSchema>;
 
+const paymentSchema = z.object({
+  id: z.string(),
+  status: z.enum(['PENDING', 'SUCCEEDED', 'FAILED', 'EXPIRED', 'REFUND_PENDING', 'REFUNDED']),
+  amountPaise: z.number().int(),
+  createdAt: z.coerce.date(),
+});
+export type Payment = z.infer<typeof paymentSchema>;
+
 const orderSummarySchema = z.object({
   id: z.string(),
   status: orderStatusSchema,
@@ -58,6 +66,8 @@ const orderDetailSchema = z.object({
         image: z.object({ url: z.string(), altText: z.string() }).nullable(),
       }),
     ),
+    /** Payment attempts, newest first. */
+    payments: z.array(paymentSchema),
   }),
 });
 

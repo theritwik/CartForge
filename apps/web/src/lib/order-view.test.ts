@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   canCancel,
+  payButtonLabel,
+  paymentStatusLabels,
+  refundNote,
   formatPhone,
   orderNumber,
   orderProgress,
@@ -46,7 +49,7 @@ describe('orderStatusMessage', () => {
     });
 
     expect(message).toContain('reserved until 7:15 pm IST');
-    expect(message).toContain('payment is not available yet');
+    expect(message).toContain('Pay before then');
   });
 
   it('never describes an unpaid order as paid', () => {
@@ -80,5 +83,25 @@ describe('canCancel', () => {
 describe('formatPhone', () => {
   it('groups a stored Indian mobile number for reading', () => {
     expect(formatPhone('+919876543210')).toBe('+91 98765 43210');
+  });
+});
+
+describe('payments', () => {
+  it('mentions a refund only when money is owed or was returned', () => {
+    expect(refundNote([{ status: 'EXPIRED' }, { status: 'FAILED' }])).toBe('');
+    expect(refundNote([{ status: 'REFUND_PENDING' }])).toContain('being refunded');
+    expect(refundNote([{ status: 'REFUNDED' }])).toContain('has been refunded');
+  });
+
+  it('never labels an unconfirmed payment as paid', () => {
+    const { SUCCEEDED, ...unconfirmed } = paymentStatusLabels;
+
+    expect(SUCCEEDED).toBe('Paid');
+    expect(Object.values(unconfirmed).some((label) => /^paid/i.test(label))).toBe(false);
+  });
+
+  it('offers a retry once an attempt has been made', () => {
+    expect(payButtonLabel([])).toBe('Pay now');
+    expect(payButtonLabel([{ status: 'FAILED' }])).toBe('Try payment again');
   });
 });

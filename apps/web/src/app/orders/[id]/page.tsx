@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import { CancelOrderButton } from '@/components/orders/cancel-order-button';
 import { OrderProgress } from '@/components/orders/order-progress';
 import { OrderStatusBadge } from '@/components/orders/order-status-badge';
+import { PayButton } from '@/components/payments/pay-button';
 import { signInHref } from '@/lib/cart-view';
 import { formatPrice } from '@/lib/format';
 import {
@@ -14,6 +15,9 @@ import {
   orderNumber,
   orderProgress,
   orderStatusMessage,
+  payButtonLabel,
+  paymentStatusLabels,
+  refundNote,
 } from '@/lib/order-view';
 import { getOrder } from '@/lib/orders';
 
@@ -67,9 +71,12 @@ export default async function OrderPage({ params }: OrderPageProps) {
           Status
         </h2>
         {progress && <OrderProgress steps={progress} />}
-        <p className={progress ? 'mt-6 text-sm' : 'text-sm'}>{orderStatusMessage(order)}</p>
+        <p className={progress ? 'mt-6 text-sm' : 'text-sm'}>
+          {orderStatusMessage(order)} {refundNote(order.payments)}
+        </p>
         {canCancel(order.status) && (
-          <div className="mt-5">
+          <div className="mt-5 flex flex-wrap items-start gap-4">
+            <PayButton orderId={order.id} label={payButtonLabel(order.payments)} />
             <CancelOrderButton orderId={order.id} />
           </div>
         )}
@@ -121,26 +128,46 @@ export default async function OrderPage({ params }: OrderPageProps) {
           </dl>
         </section>
 
-        <section aria-labelledby="address-heading">
-          <h2 id="address-heading" className="text-lg font-medium">
-            Shipping address
-          </h2>
-          <address className="text-muted mt-4 text-sm leading-relaxed not-italic">
-            <span className="text-foreground">{address.name}</span>
-            <br />
-            {address.addressLine1}
-            <br />
-            {address.addressLine2 && (
-              <>
-                {address.addressLine2}
-                <br />
-              </>
-            )}
-            {address.city}, {address.state} {address.postalCode}
-            <br />
-            {formatPhone(address.phone)}
-          </address>
-        </section>
+        <div>
+          <section aria-labelledby="address-heading">
+            <h2 id="address-heading" className="text-lg font-medium">
+              Shipping address
+            </h2>
+            <address className="text-muted mt-4 text-sm leading-relaxed not-italic">
+              <span className="text-foreground">{address.name}</span>
+              <br />
+              {address.addressLine1}
+              <br />
+              {address.addressLine2 && (
+                <>
+                  {address.addressLine2}
+                  <br />
+                </>
+              )}
+              {address.city}, {address.state} {address.postalCode}
+              <br />
+              {formatPhone(address.phone)}
+            </address>
+          </section>
+
+          {order.payments.length > 0 && (
+            <section aria-labelledby="payments-heading" className="mt-10">
+              <h2 id="payments-heading" className="text-lg font-medium">
+                Payment
+              </h2>
+              <ul className="mt-4 space-y-3 text-sm">
+                {order.payments.map((payment) => (
+                  <li key={payment.id}>
+                    <span className="block">{paymentStatusLabels[payment.status]}</span>
+                    <span className="text-muted block tabular-nums">
+                      {formatPrice(payment.amountPaise)} · {formatOrderDateTime(payment.createdAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
       </div>
     </div>
   );

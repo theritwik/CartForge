@@ -307,39 +307,68 @@ describe('orders', () => {
 });
 
 describe('payments', () => {
-  it('allows one payment per order and one row per Stripe PaymentIntent', async () => {
+  const checkoutExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+  it('allows several attempts for an order but only one that is pending', async () => {
+    const order = await createOrder((await createUser()).id, await createProduct());
+    const attempt = { orderId: order.id, amountPaise: order.totalPaise, checkoutExpiresAt };
+    const first = await prisma.payment.create({ data: attempt });
+
+    expect(first.status).toBe('PENDING');
+    await expect(prisma.payment.create({ data: attempt })).rejects.toMatchObject(
+      databaseRejection('payments_one_pending_per_order'),
+    );
+
+    await prisma.payment.update({ where: { id: first.id }, data: { status: 'EXPIRED' } });
+    await prisma.payment.create({ data: attempt });
+    expect(await prisma.payment.count({ where: { orderId: order.id } })).toBe(2);
+  });
+
+  it('allows a Checkout session and a PaymentIntent to belong to one payment only', async () => {
     const user = await createUser();
     const product = await createProduct();
     const firstOrder = await createOrder(user.id, product);
     const secondOrder = await createOrder(user.id, product);
-    const payment = await prisma.payment.create({
-      data: {
-        orderId: firstOrder.id,
-        stripePaymentIntentId: 'pi_test_1',
-        amountPaise: firstOrder.totalPaise,
-      },
+    const identifiers = {
+      stripeCheckoutSessionId: 'cs_test_1',
+      stripePaymentIntentId: 'pi_test_1',
+    };
+    await prisma.payment.create({
+      data: { orderId: firstOrder.id, amountPaise: 100, checkoutExpiresAt, ...identifiers },
     });
 
-    expect(payment.status).toBe('PENDING');
-    await expect(
-      prisma.payment.create({
-        data: { orderId: firstOrder.id, stripePaymentIntentId: 'pi_test_2', amountPaise: 100 },
-      }),
-    ).rejects.toMatchObject({ code: 'P2002' });
-    await expect(
-      prisma.payment.create({
-        data: { orderId: secondOrder.id, stripePaymentIntentId: 'pi_test_1', amountPaise: 100 },
-      }),
-    ).rejects.toMatchObject({ code: 'P2002' });
+    for (const duplicate of [
+      { stripeCheckoutSessionId: 'cs_test_1' },
+      { stripePaymentIntentId: 'pi_test_1' },
+    ]) {
+      await expect(
+        prisma.payment.create({
+          data: { orderId: secondOrder.id, amountPaise: 100, checkoutExpiresAt, ...duplicate },
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+    }
   });
 
   it('rejects a zero amount', async () => {
     const order = await createOrder((await createUser()).id, await createProduct());
 
     await expect(
-      prisma.payment.create({
-        data: { orderId: order.id, stripePaymentIntentId: 'pi_test_3', amountPaise: 0 },
-      }),
+      prisma.payment.create({ data: { orderId: order.id, amountPaise: 0, checkoutExpiresAt } }),
     ).rejects.toMatchObject(databaseRejection('payments_amount_paise_check'));
+  });
+
+  it('records a webhook event id only once', async () => {
+    const event = { id: 'evt_test_1', type: 'checkout.session.completed' };
+
+    const first = await prisma.processedStripeEvent.createMany({
+      data: [event],
+      skipDuplicates: true,
+    });
+    const second = await prisma.processedStripeEvent.createMany({
+      data: [event],
+      skipDuplicates: true,
+    });
+
+    expect([first.count, second.count]).toEqual([1, 0]);
   });
 });

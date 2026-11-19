@@ -110,6 +110,10 @@ function cancelOrder(as: SignedUpUser, orderId: string) {
   return post(`/api/v1/orders/${orderId}/cancel`).set('Cookie', as.cookie);
 }
 
+function confirmPayment(orderId: string) {
+  return prisma.$transaction((tx) => confirmOrderPayment(tx, orderId));
+}
+
 function makeOverdue(orderId: string) {
   return prisma.order.update({
     where: { id: orderId },
@@ -626,7 +630,7 @@ describe('payment confirmation (for the payment webhook)', () => {
     await addToCart(user, kettle.id, 2);
     const order = await placeOrder(user);
 
-    expect(await confirmOrderPayment(order.id)).toBe(true);
+    expect(await confirmPayment(order.id)).toBe(true);
 
     expect(await stockOf(kettle.id)).toEqual({ stockQuantity: 3, reservedQuantity: 0 });
     expect(orderIn(await getOrder(user, order.id))).toMatchObject({
@@ -639,10 +643,7 @@ describe('payment confirmation (for the payment webhook)', () => {
     await addToCart(user, kettle.id, 2);
     const order = await placeOrder(user);
 
-    const results = await Promise.all([
-      confirmOrderPayment(order.id),
-      confirmOrderPayment(order.id),
-    ]);
+    const results = await Promise.all([confirmPayment(order.id), confirmPayment(order.id)]);
 
     expect(results.toSorted()).toEqual([false, true]);
     expect(await stockOf(kettle.id)).toEqual({ stockQuantity: 3, reservedQuantity: 0 });
@@ -653,7 +654,7 @@ describe('payment confirmation (for the payment webhook)', () => {
     const order = await placeOrder(user);
     await cancelOrder(user, order.id);
 
-    expect(await confirmOrderPayment(order.id)).toBe(false);
+    expect(await confirmPayment(order.id)).toBe(false);
     expect(await stockOf(kettle.id)).toEqual({ stockQuantity: 5, reservedQuantity: 0 });
   });
 

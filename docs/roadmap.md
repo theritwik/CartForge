@@ -11,7 +11,7 @@ Milestones are built in order, one at a time. A milestone is complete only when 
 | 4   | Authentication and users                                | done    |
 | 5   | Cart and password change                                | done    |
 | 6   | Order management and inventory                          | done    |
-| 7   | Payments                                                | planned |
+| 7   | Payments                                                | done    |
 | 8   | Admin dashboard                                         | planned |
 | 9   | Caching and hardening                                   | planned |
 | 10  | End-to-end tests, containers, and release documentation | planned |
@@ -82,7 +82,7 @@ Exit criteria: cart persists across sessions and devices for a user; totals are 
 - API: idempotent checkout that rechecks price, status, and stock, reserves stock, creates a `PENDING_PAYMENT` order from the cart, and empties the cart, in one transaction; order history and detail for the owner; cancellation while awaiting payment.
 - Inventory: reserve, release, and sale operations that always run inside the caller's transaction and update products in a fixed order. Conditional updates mean concurrent checkouts cannot oversell.
 - Reservations expire after 30 minutes, through a per-minute sweep and on view, releasing stock exactly once.
-- `confirmOrderPayment` is implemented and tested for the payment webhook; no route calls it yet.
+- `confirmOrderPayment` is implemented for the payment webhook, which M7 wires up.
 - Schema: `PROCESSING` and `EXPIRED` order statuses and a per-customer idempotency key.
 - Web: checkout page with shipping address and order summary, order history, and order detail with status tracker and cancellation.
 - Tests: concurrent checkout for the last unit, multi-product rollback, duplicate requests, price changes, expiry and recovery, cancellation, ownership.
@@ -91,12 +91,18 @@ Exit criteria: concurrent checkouts never oversell; expired reservations return 
 
 ## M7 - Payments
 
-- Schema: table of processed Stripe event IDs for webhook idempotency.
-- API: PaymentIntent creation for an order; webhook endpoint with signature verification and idempotent handling of success and failure events.
-- Web: payment step with Stripe Elements, confirmation and failure pages.
-- Tests: signed webhook fixtures, duplicate delivery, invalid signature, amount mismatch, failure path releasing stock.
+- Stripe Checkout in test mode: payment attempts for an order, with the Stripe call made outside any database transaction and keyed for idempotency. Live keys are rejected.
+- Webhook endpoint verified against the raw body, with each event recorded in the same transaction as its effects so redelivery has no effect.
+- Payments reconciled on amount, currency, order, and session before an order is marked paid. A payment that arrives too late, or for an order already cancelled or paid, is refunded instead of fulfilled, with retries if Stripe is unreachable.
+- Failed or abandoned attempts can be retried; cancelling an order closes its open Checkout session.
+- Schema: several payment attempts per order with at most one pending, new payment statuses, and `processed_stripe_events`.
+- Web: "Place order and pay", payment return pages that wait for the webhook, retry and status on the order page.
+- A clearly labelled local simulator stands in for Stripe's hosted page when no key is configured.
+- Tests: signature verification, duplicate and out-of-order events, reconciliation, late payments and refunds, payment racing expiry, database failure during an event, retries, provider outages.
 
-Exit criteria: a test-card payment moves the order to `PAID` through the webhook only, decrements stock, and clears the cart; replayed events have no effect.
+Exit criteria: a test payment moves the order to `PAID` through the webhook only and converts the reservation into a sale; replayed events have no effect; money that cannot be applied is refunded.
+
+Not done: an end-to-end run against Stripe's own test environment, which needs a test-mode key and the Stripe CLI to forward webhooks. See README.
 
 ## M8 - Admin dashboard
 

@@ -7,6 +7,7 @@ import { FormField } from '@/components/auth/form-field';
 import { FormError, SubmitButton } from '@/components/auth/form-parts';
 import { callApi } from '@/lib/api-client';
 import { fieldErrorsFrom, type FieldErrors } from '@/lib/auth-forms';
+import { goToPayment } from '@/lib/payments';
 import { addressFieldErrors, INDIAN_STATES, shippingAddressFormSchema } from '@/lib/checkout-form';
 
 const createdOrderSchema = z.object({ data: z.object({ id: z.string() }) });
@@ -51,7 +52,11 @@ export function CheckoutForm({
 
     if (result.ok) {
       const order = createdOrderSchema.safeParse(result.data);
-      // Stays in the submitting state until the order page replaces this form.
+      if (order.success) {
+        // Leaves for the payment page. It returns only if payment could not be started,
+        // in which case the order page offers the pay button again.
+        await goToPayment(order.data.data.id);
+      }
       router.push(order.success ? `/orders/${order.data.data.id}` : '/orders');
       router.refresh();
       return;
@@ -161,12 +166,12 @@ export function CheckoutForm({
       </div>
       <SubmitButton
         isSubmitting={isSubmitting}
-        label="Place order"
+        label="Place order and pay"
         submittingLabel="Placing order…"
       />
       <p className="text-muted text-xs">
-        Placing the order reserves your items for 30 minutes. Online payment is not available yet,
-        so the order will stay unpaid.
+        Your items are reserved while you pay. You will be taken to a secure payment page; card
+        details are never entered on or stored by CartForge.
       </p>
     </form>
   );

@@ -53,6 +53,10 @@ const orderDetailSelect = {
     },
     orderBy: [{ productName: 'asc' }, { id: 'asc' }],
   },
+  payments: {
+    select: { id: true, status: true, amountPaise: true, createdAt: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  },
 } satisfies Prisma.OrderSelect;
 
 type OrderSummaryRow = Prisma.OrderGetPayload<{ select: typeof orderSummarySelect }>;
@@ -89,6 +93,8 @@ function toOrderDetail(order: OrderDetailRow) {
       productSlug: item.product.status === 'ACTIVE' ? item.product.slug : null,
       image: item.product.images[0] ?? null,
     })),
+    // Payment attempts, newest first. Provider identifiers are not exposed.
+    payments: order.payments,
   };
 }
 
@@ -255,22 +261,25 @@ export async function expireOverdueOrders(userId?: string): Promise<number> {
 }
 
 /**
- * Marks an unpaid order as paid and turns its reservation into a sale. For the
- * payment webhook: no HTTP route calls this. Returns false, changing nothing,
- * if the order is not awaiting payment, so a repeated notification is harmless.
+ * Marks an unpaid order as paid and turns its reservation into a sale, inside
+ * the caller's transaction. Only the payment webhook calls this: no HTTP route
+ * can mark an order paid. Returns false, changing nothing, if the order is not
+ * awaiting payment (already paid, cancelled, or expired), so the caller knows
+ * the money cannot be applied to it.
  */
-export async function confirmOrderPayment(orderId: string): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const { count } = await tx.order.updateMany({
-      where: { id: orderId, status: 'PENDING_PAYMENT' },
-      data: { status: 'PAID', reservationExpiresAt: null },
-    });
-    if (count === 0) {
-      return false;
-    }
-    await commitStock(tx, await orderStockLines(tx, orderId));
-    return true;
+export async function confirmOrderPayment(
+  tx: Prisma.TransactionClient,
+  orderId: string,
+): Promise<boolean> {
+  const { count } = await tx.order.updateMany({
+    where: { id: orderId, status: 'PENDING_PAYMENT' },
+    data: { status: 'PAID', reservationExpiresAt: null },
   });
+  if (count === 0) {
+    return false;
+  }
+  await commitStock(tx, await orderStockLines(tx, orderId));
+  return true;
 }
 
 /** A customer may cancel their own order while it is still awaiting payment. */

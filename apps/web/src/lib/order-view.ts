@@ -1,4 +1,4 @@
-import type { OrderStatus } from './orders';
+import type { OrderStatus, Payment } from './orders';
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
   PENDING_PAYMENT: 'Awaiting payment',
@@ -67,12 +67,10 @@ export function orderStatusMessage(order: {
   reservationExpiresAt: Date | null;
 }): string {
   switch (order.status) {
-    case 'PENDING_PAYMENT': {
-      const held = order.reservationExpiresAt
-        ? `Your items are reserved until ${timeFormat.format(order.reservationExpiresAt)} IST.`
-        : 'Your items are reserved.';
-      return `${held} Online payment is not available yet, so this order cannot be paid for and will expire.`;
-    }
+    case 'PENDING_PAYMENT':
+      return order.reservationExpiresAt
+        ? `Your items are reserved until ${timeFormat.format(order.reservationExpiresAt)} IST. Pay before then to complete the order.`
+        : 'Your items are reserved. Pay to complete the order.';
     case 'PAID':
       return 'Payment received. The order is waiting to be prepared.';
     case 'PROCESSING':
@@ -102,4 +100,29 @@ export function canCancel(status: OrderStatus): boolean {
 /** "+919876543210" as "+91 98765 43210". */
 export function formatPhone(phone: string): string {
   return phone.replace(/^\+91(\d{5})(\d{5})$/, '+91 $1 $2');
+}
+
+export const paymentStatusLabels: Record<Payment['status'], string> = {
+  PENDING: 'Started, not completed',
+  SUCCEEDED: 'Paid',
+  FAILED: 'Failed',
+  EXPIRED: 'Not completed',
+  REFUND_PENDING: 'Refund in progress',
+  REFUNDED: 'Refunded',
+};
+
+/** A sentence about money owed back to the customer, or an empty string if none is. */
+export function refundNote(payments: Pick<Payment, 'status'>[]): string {
+  if (payments.some((payment) => payment.status === 'REFUND_PENDING')) {
+    return 'A payment we received for it is being refunded.';
+  }
+  if (payments.some((payment) => payment.status === 'REFUNDED')) {
+    return 'The payment we received for it has been refunded.';
+  }
+  return '';
+}
+
+/** Whether the customer has already tried to pay, which changes the button wording. */
+export function payButtonLabel(payments: Pick<Payment, 'status'>[]): string {
+  return payments.length > 0 ? 'Try payment again' : 'Pay now';
 }
