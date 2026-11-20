@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { isPaymentSimulator } from './lib/stripe.js';
 import { prisma } from './lib/prisma.js';
+import { createScheduledJob } from './lib/scheduled-job.js';
 import { cacheRedis, redis } from './lib/redis.js';
 import { deleteExpiredSessions } from './modules/auth/sessions.js';
 import { expireOverdueOrders } from './modules/orders/orders.service.js';
@@ -30,26 +31,17 @@ const server = createApp().listen(env.API_PORT, () => {
   }
 });
 
-// Expired sessions are already rejected on use; this only removes the leftover rows.
-setInterval(() => {
-  deleteExpiredSessions().catch((error: unknown) => {
-    logger.error({ err: error }, 'Expired session sweep failed');
-  });
-}, SESSION_SWEEP_INTERVAL_MS).unref();
-
-// Returns the stock held by unpaid orders whose reservation has run out.
-setInterval(() => {
-  expireOverdueOrders().catch((error: unknown) => {
-    logger.error({ err: error }, 'Order expiry sweep failed');
-  });
-}, ORDER_EXPIRY_INTERVAL_MS).unref();
-
-// Retries refunds owed for payments that arrived after their order could no longer be fulfilled.
-setInterval(() => {
-  refundPendingPayments().catch((error: unknown) => {
-    logger.error({ err: error }, 'Refund retry run failed');
-  });
-}, REFUND_RETRY_INTERVAL_MS).unref();
+// Each job is safe to run on several instances at once; the scheduler only avoids duplicate work.
+for (const job of [
+  // Expired sessions are already rejected on use; this only removes the leftover rows.
+  { name: 'session-sweep', intervalMs: SESSION_SWEEP_INTERVAL_MS, run: deleteExpiredSessions },
+  // Returns the stock held by unpaid orders whose reservation has run out.
+  { name: 'order-expiry', intervalMs: ORDER_EXPIRY_INTERVAL_MS, run: () => expireOverdueOrders() },
+  // Retries refunds owed for payments that arrived after their order could no longer be fulfilled.
+  { name: 'refund-retry', intervalMs: REFUND_RETRY_INTERVAL_MS, run: refundPendingPayments },
+]) {
+  createScheduledJob(job).start();
+}
 
 function shutdown(signal: NodeJS.Signals): void {
   logger.info({ signal }, 'Shutting down');

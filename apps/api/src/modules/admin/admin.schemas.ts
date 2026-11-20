@@ -69,6 +69,13 @@ export const stockAdjustmentSchema = z.object({
     .min(-MAX_STOCK_ADJUSTMENT)
     .max(MAX_STOCK_ADJUSTMENT)
     .refine((value) => value !== 0, 'Enter a change other than zero'),
+  /** Why the stock changed, for the adjustment history. An empty value means none. */
+  reason: z
+    .string()
+    .trim()
+    .max(200, 'Keep the reason to 200 characters')
+    .optional()
+    .transform((value) => value || undefined),
 });
 
 const categoryFields = {

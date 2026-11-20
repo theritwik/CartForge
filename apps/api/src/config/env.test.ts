@@ -32,6 +32,29 @@ describe('parseEnv', () => {
     );
   });
 
+  it('requires an https web origin in production', () => {
+    const production = {
+      ...validSource,
+      NODE_ENV: 'production',
+      STRIPE_SECRET_KEY: 'sk_test_example',
+      STRIPE_WEBHOOK_SECRET: 'whsec_example',
+    };
+
+    expect(() => parseEnv({ ...production, WEB_ORIGIN: 'http://shop.example.com' })).toThrow(
+      /WEB_ORIGIN/,
+    );
+    expect(() => parseEnv({ ...production, WEB_ORIGIN: 'http://localhost.example.com' })).toThrow(
+      /WEB_ORIGIN/,
+    );
+    // A production build run on this machine, where browsers accept Secure cookies.
+    expect(parseEnv({ ...production, WEB_ORIGIN: 'http://localhost:3000' })).toMatchObject({
+      WEB_ORIGIN: 'http://localhost:3000',
+    });
+    expect(parseEnv({ ...production, WEB_ORIGIN: 'https://shop.example.com' })).toMatchObject({
+      WEB_ORIGIN: 'https://shop.example.com',
+    });
+  });
+
   describe('Stripe configuration', () => {
     const stripeSource = {
       ...validSource,

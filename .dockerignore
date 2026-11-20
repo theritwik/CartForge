@@ -1,0 +1,17 @@
+# Build context for apps/api/Dockerfile and apps/web/Dockerfile (both built from the repository root).
+**/node_modules
+**/dist
+**/.next
+**/.next-e2e
+**/*.tsbuildinfo
+packages/db/src/generated
+e2e/test-results
+e2e/playwright-report
+.git
+.github
+docs
+# Never copy local configuration or secrets into an image.
+.env
+.env.*
+!.env.example
+**/.env*

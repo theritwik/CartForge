@@ -30,6 +30,7 @@ export function StockAdjustForm({
     event.preventDefault();
     const form = event.currentTarget;
     const text = formText(form, 'delta').trim();
+    const reason = compact ? undefined : formText(form, 'reason').trim() || undefined;
     setError(undefined);
     setMessage(undefined);
 
@@ -42,17 +43,28 @@ export function StockAdjustForm({
     setIsSaving(true);
     const result = await callApi('POST', `/admin/products/${productId}/stock-adjustments`, {
       delta,
+      reason,
     });
     setIsSaving(false);
 
     if (!result.ok) {
-      setError(result.fieldErrors.delta ?? result.message);
+      setError(result.fieldErrors.delta ?? result.fieldErrors.reason ?? result.message);
       return;
     }
     form.reset();
     setMessage(delta > 0 ? `Added ${delta}.` : `Removed ${-delta}.`);
     router.refresh();
   }
+
+  const applyButton = (
+    <button
+      type="submit"
+      disabled={isSaving}
+      className="border-border hover:bg-surface rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-60"
+    >
+      {isSaving ? 'Saving…' : 'Apply'}
+    </button>
+  );
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} noValidate>
@@ -72,14 +84,24 @@ export function StockAdjustForm({
             error ? 'border-danger' : 'border-border'
           }`}
         />
-        <button
-          type="submit"
-          disabled={isSaving}
-          className="border-border hover:bg-surface rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-60"
-        >
-          {isSaving ? 'Saving…' : 'Apply'}
-        </button>
+        {compact && applyButton}
       </div>
+      {!compact && (
+        <>
+          <label htmlFor={`${inputId}-reason`} className="mt-3 block text-sm font-medium">
+            Reason <span className="text-muted font-normal">(optional)</span>
+          </label>
+          <input
+            id={`${inputId}-reason`}
+            name="reason"
+            type="text"
+            maxLength={200}
+            placeholder="Delivery, damaged units, stock count…"
+            className="bg-background border-border mt-1.5 w-full rounded-md border px-3 py-1.5 text-sm"
+          />
+          <div className="mt-3">{applyButton}</div>
+        </>
+      )}
       <p id={`${inputId}-help`} className={compact ? 'sr-only' : 'text-muted mt-1.5 text-xs'}>
         Positive numbers add stock, negative numbers remove it.
         {reservedQuantity > 0 && ` ${reservedQuantity} units are reserved and cannot be removed.`}

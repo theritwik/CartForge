@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
-import { adjustProductStock } from '../inventory/inventory.service.js';
+import { authenticatedUser } from '../../middleware/authenticate.js';
+import { adjustProductStock, listStockAdjustments } from '../inventory/inventory.service.js';
 import { getAdminOrder, listAdminOrders, transitionOrder } from '../orders/order-admin.service.js';
 import {
   createCategory,
@@ -52,9 +53,14 @@ export async function updateProductHandler(req: Request, res: Response): Promise
 
 export async function adjustStockHandler(req: Request, res: Response): Promise<void> {
   const { id } = idParamsSchema.parse(req.params);
-  const { delta } = stockAdjustmentSchema.parse(req.body);
-  await adjustProductStock(id, delta);
+  const { delta, reason } = stockAdjustmentSchema.parse(req.body);
+  await adjustProductStock({ productId: id, adminId: authenticatedUser(req).id, delta, reason });
   res.json({ data: await getAdminProduct(id) });
+}
+
+export async function listStockAdjustmentsHandler(req: Request, res: Response): Promise<void> {
+  const { id } = idParamsSchema.parse(req.params);
+  res.json({ data: await listStockAdjustments(id) });
 }
 
 export async function listCategoriesHandler(_req: Request, res: Response): Promise<void> {

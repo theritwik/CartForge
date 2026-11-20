@@ -53,6 +53,51 @@ services:
       timeout: 3s
       retries: 10
 
+  # The full stack from production images: docker compose --profile full up --build
+  # The browser talks only to the web app on port 8080; the API is not published.
+  migrate:
+    profiles: [full]
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: migrate }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    profiles: [full]
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: runtime }
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      LOG_LEVEL: info
+      # http://localhost is accepted in production because browsers treat it as secure.
+      WEB_ORIGIN: http://localhost:${WEB_PORT:-8080}
+      TRUST_PROXY_HOPS: 0
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      CACHE_REDIS_URL: redis://redis-cache:6379
+      # Required: in production the API refuses to start without Stripe test-mode keys, as
+      # there is no simulator. Set them in .env (see docs/stripe-test-mode.md).
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      redis-cache: { condition: service_healthy }
+
+  web:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args: { API_URL: 'http://api:4000' }
+    environment:
+      API_URL: http://api:4000
+    ports:
+      - '127.0.0.1:${WEB_PORT:-8080}:3000'
+    depends_on:
+      api: { condition: service_healthy }
+
 volumes:
   postgres-data:
   redis-data:

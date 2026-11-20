@@ -15,8 +15,12 @@ const envSchema = z
     CACHE_REDIS_URL: z.url({ protocol: /^rediss?$/ }),
     // The origin browsers load the web app from. State-changing requests must come from it.
     WEB_ORIGIN: z.url({ protocol: /^https?$/ }).transform((url) => new URL(url).origin),
-    // Number of reverse proxies in front of the API whose X-Forwarded-For entry is trusted.
+    // Proxies whose X-Forwarded-For entry is trusted as the client address. Count only proxies
+    // that set it, such as a load balancer in front of the web app: the web app's /api proxy
+    // forwards the header unchanged, so it is not one of them.
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+    // State-changing API requests allowed per client address per minute.
+    API_WRITE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(120),
     SESSION_IDLE_TIMEOUT_DAYS: z.coerce.number().int().min(1).max(365).default(7),
     SESSION_ABSOLUTE_TIMEOUT_DAYS: z.coerce.number().int().min(1).max(365).default(30),
     // Stripe test mode only. Live keys are rejected so real payments cannot be taken by mistake.
@@ -44,6 +48,18 @@ const envSchema = z
         code: 'custom',
         path: ['STRIPE_WEBHOOK_SECRET'],
         message: 'Required when STRIPE_SECRET_KEY is set',
+      });
+    }
+    // Browsers accept Secure cookies only over HTTPS, or from http://localhost when the
+    // production build is run locally.
+    const isSecureOrigin =
+      config.WEB_ORIGIN.startsWith('https://') ||
+      /^http:\/\/localhost(:\d+)?$/.test(config.WEB_ORIGIN);
+    if (config.NODE_ENV === 'production' && !isSecureOrigin) {
+      context.addIssue({
+        code: 'custom',
+        path: ['WEB_ORIGIN'],
+        message: 'Must be https in production: the session cookie is Secure and would not be set',
       });
     }
     if (config.NODE_ENV === 'production' && !config.STRIPE_SECRET_KEY) {
