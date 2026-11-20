@@ -4,13 +4,18 @@ import { ProductForm } from '@/components/admin/product-form';
 import { ProductStatusActions } from '@/components/admin/product-status-actions';
 import { ProductStatusBadge } from '@/components/admin/product-status-badge';
 import { StockAdjustForm } from '@/components/admin/stock-adjust-form';
-import { getAdminCategories, getAdminProduct } from '@/lib/admin-api';
+import { getAdminCategories, getAdminProduct, getStockAdjustments } from '@/lib/admin-api';
+import { formatOrderDateTime } from '@/lib/order-view';
 
 export const metadata: Metadata = { title: 'Edit product' };
 
 export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [product, categories] = await Promise.all([getAdminProduct(id), getAdminCategories()]);
+  const [product, categories, stockAdjustments] = await Promise.all([
+    getAdminProduct(id),
+    getAdminCategories(),
+    getStockAdjustments(id),
+  ]);
 
   return (
     <div className="grid grid-cols-1 gap-10 xl:grid-cols-[1fr_20rem]">
@@ -81,6 +86,37 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
               reservedQuantity={product.reservedQuantity}
             />
           </div>
+        </section>
+        <section aria-labelledby="history-heading" className="border-border rounded-lg border p-5">
+          <h2 id="history-heading" className="font-medium">
+            Recent stock changes
+          </h2>
+          {stockAdjustments.length === 0 ? (
+            <p className="text-muted mt-3 text-sm">No adjustments yet.</p>
+          ) : (
+            <ol className="divide-border mt-3 divide-y text-sm">
+              {stockAdjustments.map((adjustment) => (
+                <li key={adjustment.id} className="py-2.5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium tabular-nums">
+                      {adjustment.delta > 0 ? `+${adjustment.delta}` : `−${-adjustment.delta}`}
+                      <span className="text-muted font-normal"> → {adjustment.stockAfter}</span>
+                    </span>
+                    <time
+                      dateTime={adjustment.createdAt.toISOString()}
+                      className="text-muted text-xs"
+                    >
+                      {formatOrderDateTime(adjustment.createdAt)}
+                    </time>
+                  </div>
+                  <p className="text-muted mt-0.5 text-xs break-words">
+                    {adjustment.admin.name}
+                    {adjustment.reason && ` · ${adjustment.reason}`}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
         </section>
       </aside>
     </div>

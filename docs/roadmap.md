@@ -2,19 +2,19 @@
 
 Milestones are built in order, one at a time. A milestone is complete only when its exit criteria pass. Status values: `planned`, `in progress`, `done`.
 
-| #   | Milestone                                                              | Status  |
-| --- | ---------------------------------------------------------------------- | ------- |
-| 0   | Planning and architecture                                              | done    |
-| 1   | Monorepo foundation                                                    | done    |
-| 2   | Database foundation                                                    | done    |
-| 3   | Product catalog                                                        | done    |
-| 4   | Authentication and users                                               | done    |
-| 5   | Cart and password change                                               | done    |
-| 6   | Order management and inventory                                         | done    |
-| 7   | Payments                                                               | done    |
-| 8   | Admin dashboard                                                        | done    |
-| 9   | Caching and database performance                                       | done    |
-| 10  | API hardening, end-to-end tests, containers, and release documentation | planned |
+| #   | Milestone                                                              | Status      |
+| --- | ---------------------------------------------------------------------- | ----------- |
+| 0   | Planning and architecture                                              | done        |
+| 1   | Monorepo foundation                                                    | done        |
+| 2   | Database foundation                                                    | done        |
+| 3   | Product catalog                                                        | done        |
+| 4   | Authentication and users                                               | done        |
+| 5   | Cart and password change                                               | done        |
+| 6   | Order management and inventory                                         | done        |
+| 7   | Payments                                                               | done        |
+| 8   | Admin dashboard                                                        | done        |
+| 9   | Caching and database performance                                       | done        |
+| 10  | API hardening, end-to-end tests, containers, and release documentation | in progress |
 
 ## M0 - Planning and architecture
 
@@ -102,7 +102,7 @@ Exit criteria: concurrent checkouts never oversell; expired reservations return 
 
 Exit criteria: a test payment moves the order to `PAID` through the webhook only and converts the reservation into a sale; replayed events have no effect; money that cannot be applied is refunded.
 
-Not done: an end-to-end run against Stripe's own test environment, which needs a test-mode key and the Stripe CLI to forward webhooks. See README.
+Not done: an end-to-end run against Stripe's own test environment, which needs a test-mode key and the Stripe CLI to forward webhooks. See [stripe-test-mode.md](stripe-test-mode.md).
 
 ## M8 - Admin dashboard
 
@@ -134,27 +134,47 @@ Moved from M9:
 - General API rate limiting, request size limits, review of headers and cookie settings.
 - Review of error responses and logs for leaked detail.
 
-Planned for M10:
+Delivered:
 
-- Playwright suite for the main journeys: register, browse, cart, checkout with a test card, order history, admin product edit.
-- Production Dockerfiles for `web` and `api`; compose profile to run the full stack.
-- CI runs the end-to-end suite.
-- Final README: features, architecture summary, setup, test commands, screenshots.
+- Security and reliability review recorded in `docs/security-review.md`, with seven findings fixed and regression-tested:
+  - client-address spoofing in rate limits;
+  - missing web security headers;
+  - no general write rate limit (now per address, and per administrator for admin writes);
+  - admin body-size mismatch;
+  - overlapping background job runs;
+  - HTTPS required in production;
+  - one dependency advisory.
+- Background jobs coordinated across API instances; liveness endpoint `/health/live` beside readiness `/health`.
+- Stock adjustment history: who changed stock, by how much, why, and the stock afterwards, written in the same transaction and shown on the product page.
+- Playwright suite (`e2e/`, 21 tests) covering registration and sign-in, search and filters, product detail, cart quantities and persistence across devices, address validation, order creation, simulated payment success, failure and retry, cancellation, order history and status updates, admin access, product creation and editing, stock adjustments, order fulfilment, sign-out, and session expiry. It runs against production builds with its own database and Redis indexes.
+- CI runs the suite in a second job and checks migrations against the schema.
+- Production Dockerfiles for the API (with a migration target) and the web app, and a Compose `full` profile that runs the whole stack from them.
+- `docs/deployment.md` (hosting options, environment, migrations, backups, checklist), `docs/stripe-test-mode.md`, `docs/interview-notes.md`, and a rewritten README.
 
 Exit criteria: security review checklist is recorded in `docs/`; full stack starts from containers; all test levels pass in CI; documentation matches what is implemented.
 
+Status: everything above passes locally. The milestone is done once CI passes on GitHub, which has not run for this work yet.
+
+Not done:
+
+- Verification against real Stripe test mode: no key, CLI, or network access to Stripe was available. See `docs/stripe-test-mode.md`.
+- Deployment to a hosting provider: hosting options are presented in `docs/deployment.md` for a decision first.
+- A delivery pipeline that builds, pushes, and deploys images.
+
 ## Backlog
 
-Improvements identified after M8 and M9. None is implemented. An item becomes work only when it is scheduled into a milestone; those marked with a milestone already fit its stated scope.
+Improvements identified after M8, M9 and M10. None is implemented. An item becomes work only when it is scheduled into a milestone; those marked with a milestone already fit its stated scope.
 
-| Item                        | What it involves                                                                                                                                                                                       | Fits                            |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
-| Stock adjustment history    | A table recording each adjustment: product, change, resulting stock, administrator, reason, and time. Written in the same transaction as the adjustment, and shown on the product and inventory pages. | Unscheduled                     |
-| Product image management    | Uploading, ordering, replacing, and removing product images from the admin area, with storage outside the database and validation of file type and size. Products created today have no image.         | Unscheduled                     |
-| Administrative activity log | A record of every state-changing admin action (product, category, stock, and order changes) with the administrator and time, viewable by administrators. Overlaps with the stock adjustment history.   | Unscheduled                     |
-| Admin API rate limiting     | Per-administrator limits on `/api/v1/admin` writes, using the existing Redis rate limiter.                                                                                                             | M10 (general API rate limiting) |
-| Catalog search improvements | Full-text or prefix search for terms shorter than three characters, and keyset pagination for deep pages. See `performance.md`.                                                                        | Unscheduled                     |
-| Automated browser tests     | A committed Playwright suite in CI covering the storefront, checkout, payment simulator, and admin journeys. The browser checks so far were scripted by hand and are not in the repository.            | M10 (end-to-end tests)          |
+| Item                                  | What it involves                                                                                                                                                                                     | Fits        |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| Product image management              | Uploading, ordering, replacing, and removing product images from the admin area, with storage outside the database and validation of file type and size. Products created today have no image.       | Unscheduled |
+| Administrative activity log           | A record of every state-changing admin action (product, category, stock, and order changes) with the administrator and time, viewable by administrators. Overlaps with the stock adjustment history. | Unscheduled |
+| Catalog search improvements           | Full-text or prefix search for terms shorter than three characters, and keyset pagination for deep pages. See `performance.md`.                                                                      | Unscheduled |
+| Script Content Security Policy        | A nonce-based `script-src` policy for every page, generated per request in the web app's proxy.                                                                                                      | Unscheduled |
+| Password reset and email verification | Email delivery, single-use reset tokens stored as hashes, and verified addresses.                                                                                                                    | Unscheduled |
+| Cache stampede protection             | Coalescing concurrent misses for one catalog key, after the generation changes. Measured cost of not doing it is low (see `performance.md`).                                                         | Unscheduled |
+| Smaller images                        | Next.js standalone output for the web image and leaving the Prisma CLI out of the API runtime image (746 MB and 935 MB uncompressed today).                                                          | Unscheduled |
+| Delivery pipeline                     | Build and push images on `main`, run the migration job, roll out, smoke-check, roll back on failure.                                                                                                 | Unscheduled |
 
 ## Out of scope
 

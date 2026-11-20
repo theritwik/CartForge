@@ -6,6 +6,7 @@ import { logger } from './lib/logger.js';
 import { isPaymentSimulator } from './lib/stripe.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { notFoundHandler } from './middleware/not-found.js';
+import { limitWritesPerAddress } from './middleware/rate-limit-writes.js';
 import { verifyRequestOrigin } from './middleware/verify-origin.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -39,13 +40,16 @@ export function createApp(): Express {
     stripeWebhookHandler,
   );
 
+  // A product description may be 5,000 characters, up to 20 KB of UTF-8, so admin requests
+  // get a larger limit. A body parsed here is not parsed again by the general parser below.
+  app.use('/api/v1/admin', express.json({ limit: '32kb' }));
   app.use(express.json({ limit: '10kb' }));
 
   // Unversioned path for infrastructure probes; versioned path is reachable through the web proxy.
   app.use('/health', healthRouter);
   app.use('/api/v1/health', healthRouter);
 
-  app.use('/api', verifyRequestOrigin);
+  app.use('/api', verifyRequestOrigin, limitWritesPerAddress);
   app.use('/api/v1/auth', noStore, authRouter);
   app.use('/api/v1/users', noStore, usersRouter);
   app.use('/api/v1/cart', noStore, cartRouter);

@@ -18,6 +18,8 @@ erDiagram
     Cart ||--o{ CartItem : "contains"
     Order ||--|{ OrderItem : "contains"
     Order ||--o{ Payment : "paid by"
+    Product ||--o{ StockAdjustment : "adjusted by"
+    User ||--o{ StockAdjustment : "made"
 
     User {
         uuid id PK
@@ -48,6 +50,15 @@ erDiagram
         product_status status
         int stock_quantity
         int reserved_quantity
+    }
+    StockAdjustment {
+        uuid id PK
+        uuid product_id FK
+        uuid admin_id FK
+        int delta
+        int stock_after
+        text reason
+        timestamptz created_at
     }
     ProductImage {
         uuid id PK
@@ -145,6 +156,10 @@ Unique `name` and `slug`.
 - CHECK constraints: `price_paise >= 0`, `stock_quantity >= 0`, and `0 <= reserved_quantity <= stock_quantity`. The last one makes the database the final guard against overselling.
 - Indexes: `(category_id, status)` for category listings, `(status, created_at)` for the default catalog listing, `(status, price_paise, id)` for price sorting, and trigram GIN indexes (`pg_trgm`) on `name` and `description` for substring search. See [performance.md](performance.md).
 
+### stock_adjustments
+
+One row per administrator stock adjustment, written in the same transaction as the change to `products.stock_quantity`, so a change is never applied without its record. `delta` is the change and `stock_after` the physical stock straight afterwards; `reason` is optional. Reservations and sales are not recorded here: they are visible through orders. CHECK constraints: `delta <> 0`, `stock_after >= 0`, and `reason` between 1 and 200 characters when present. A trigger makes rows immutable. Both foreign keys use `RESTRICT`, so neither a product nor an administrator with history can be deleted. Index: `(product_id, created_at)` for a product's history, and `(admin_id)`.
+
 ### product_images
 
 Ordered images for a product. `position` 0 is the primary image; `(product_id, position)` is unique.
@@ -180,7 +195,7 @@ The id of every webhook event that has been handled, inserted in the same transa
 
 ## Constraints defined in SQL
 
-Prisma schema cannot express CHECK constraints or triggers. They are written by hand at the end of the initial migration, and Prisma Migrate leaves them in place when it compares the schema to the database. Any future change to them must also be written by hand in a new migration.
+Prisma schema cannot express CHECK constraints or triggers. They are written by hand at the end of the initial migration and of `stock_adjustments`, and Prisma Migrate leaves them in place when it compares the schema to the database. Any future change to them must also be written by hand in a new migration.
 
 ## Migrations
 
@@ -201,6 +216,7 @@ After changing the schema, run `pnpm --filter @cartforge/db build` so the API se
 | `payment_attempts`        | Several payment attempts per order (one pending at a time), Checkout session fields, `EXPIRED` and `REFUND_PENDING` payment statuses, `processed_stripe_events` |
 | `catalog_search_indexes`  | `pg_trgm` extension, trigram indexes on product name and description, and the `(status, price_paise, id)` index                                                 |
 | `orders_created_at_index` | `(created_at, id)` index on orders                                                                                                                              |
+| `stock_adjustments`       | `stock_adjustments` table with its CHECK constraints and immutability trigger                                                                                   |
 
 ## Seed data
 

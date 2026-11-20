@@ -17,6 +17,7 @@ Full-stack e-commerce application built as a pnpm monorepo. See `docs/architectu
 - `apps/api` - Express REST API, organised by feature under `src/modules/`
 - `packages/db` - Prisma schema, migrations, seed, and the exported client
 - `packages/shared` - created only when web and api genuinely share code
+- `e2e` - Playwright suite, run against production builds
 - `docs/` - architecture, database schema, and roadmap
 
 API modules: `auth`, `users`, `products`, `cart`, `inventory`, `orders`, `payments`, `admin`. The `admin` module holds the administrator router and dashboard; the operations it exposes live in their own modules. Each module contains only the files it needs (routes, controller, service, schemas, tests).
@@ -28,6 +29,7 @@ Run from the repository root. Node.js 24 (`.nvmrc`), pnpm 10.
 - `pnpm services:up` / `pnpm services:down` - start or stop PostgreSQL and Redis
 - `pnpm dev` - run the API (port 4000) and web app (port 3000)
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm format:check`, `pnpm build`
+- `pnpm e2e` - build the apps and run the Playwright suite on its own database (`cartforge_e2e_test`), Redis indexes 2 and 3, and ports 4200 and 3200
 - `pnpm db:migrate` - create and apply a migration from schema changes (development database)
 - `pnpm db:seed` - load the development catalog; safe to run repeatedly
 - `pnpm admin:create` - create or promote an administrator; prompts for the password (never pass it as an argument or environment variable)

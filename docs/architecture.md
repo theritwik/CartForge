@@ -130,17 +130,17 @@ A module omits any file it does not need.
 
 ### 4.2 Module responsibilities
 
-| Module    | Responsibility                                                                                                                                    |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| auth      | Registration, login, logout, session creation, validation, expiry, and revocation                                                                 |
-| users     | Current user profile, admin user listing                                                                                                          |
-| products  | Catalog queries (list, filter, search, detail), categories, admin product CRUD                                                                    |
-| inventory | Stock reservation, release, and sale; administrator stock adjustments                                                                             |
-| admin     | The `/api/v1/admin` router (administrators only) and dashboard figures; catalog, order, and stock operations it exposes live in their own modules |
-| cart      | Per-user cart contents and totals                                                                                                                 |
-| orders    | Checkout, order lifecycle, order history, admin order management                                                                                  |
-| payments  | Stripe Checkout sessions for orders, webhook verification and handling, refunds of payments that cannot be applied                                |
-| health    | Liveness and dependency checks for PostgreSQL and Redis. Served at `/health` for infrastructure probes and `/api/v1/health` through the web proxy |
+| Module    | Responsibility                                                                                                                                                                             |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| auth      | Registration, login, logout, session creation, validation, expiry, and revocation                                                                                                          |
+| users     | Current user profile, admin user listing                                                                                                                                                   |
+| products  | Catalog queries (list, filter, search, detail), categories, admin product CRUD                                                                                                             |
+| inventory | Stock reservation, release, and sale; administrator stock adjustments                                                                                                                      |
+| admin     | The `/api/v1/admin` router (administrators only) and dashboard figures; catalog, order, and stock operations it exposes live in their own modules                                          |
+| cart      | Per-user cart contents and totals                                                                                                                                                          |
+| orders    | Checkout, order lifecycle, order history, admin order management                                                                                                                           |
+| payments  | Stripe Checkout sessions for orders, webhook verification and handling, refunds of payments that cannot be applied                                                                         |
+| health    | Liveness (`/health/live`, process only) and readiness (`/health`: PostgreSQL and the rate-limit Redis; the cache is reported but optional). Also at `/api/v1/health` through the web proxy |
 
 ### 4.3 API conventions
 
@@ -165,7 +165,7 @@ Authentication uses opaque, server-side sessions stored in PostgreSQL. There are
 - Hashed with Argon2id using OWASP's recommended configuration (19 MiB memory, 2 iterations, 1 thread). The parameters are constants in the auth module; a hash made with older parameters is rehashed on the next successful login.
 - Passwords are 10 to 128 characters. The upper bound keeps hashing cost predictable.
 - Login failures return one generic message regardless of whether the email exists, and an unknown email is checked against a decoy hash so it takes as long to reject as a wrong password.
-- Rate limits (fixed windows in Redis): login is limited to 5 attempts per email and 30 per IP address every 15 minutes, and a successful login clears the email counter; registration is limited to 10 per IP address per hour. If Redis is unreachable the limiter allows the request and logs the failure, so a Redis outage does not lock everyone out.
+- Rate limits (fixed windows in Redis): login is limited to 5 attempts per email and 30 per IP address every 15 minutes, and a successful login clears the email counter; registration is limited to 10 per IP address per hour. Every state-changing API request is also limited per client address (120 a minute by default, `API_WRITE_LIMIT_PER_MINUTE`), and admin writes per administrator (60 a minute). Reads are not limited per address, because pages rendered by the web app all reach the API from the web server's address. If Redis is unreachable the limiter allows the request and logs the failure, so a Redis outage does not lock everyone out.
 - Registration answers 409 for an email that is already registered. Without email verification there is no way to hide this from the person registering; the registration rate limit bounds its use for probing.
 
 **Sessions**
@@ -227,7 +227,7 @@ The Stripe webhook is exempt from the origin check: it carries no session cookie
 
 - Sign-in, registration, and sign-out are `fetch` calls from the browser to the same-origin `/api` proxy, so the API sets and clears the cookie directly. The token is never available to JavaScript and nothing is kept in `localStorage`.
 - Server Components find the signed-in user by forwarding the session cookie to `GET /api/v1/users/me`. The web app does not validate sessions itself.
-- The API trusts `X-Forwarded-For` from `TRUST_PROXY_HOPS` proxies (1 when the web app proxies to it) so rate limits see the real client address. With a non-zero value the API must be reachable only through that proxy; a client that could connect to it directly could forge the header.
+- Rate limits key on the client address. The web app's `/api` proxy forwards the browser's `X-Forwarded-For` header unchanged and does not add the client address, so the header is trusted only from proxies that set it: `TRUST_PROXY_HOPS` counts those in front of the web app, such as a load balancer (typically 1 in production, 0 locally). With 0, a client cannot choose its own address, but every request through the web app shares the web server's address. With a non-zero value the API and the web app must be reachable only through those proxies; a client that could connect directly could forge the header. A regression test checks that rotating the header does not escape the login limit.
 
 ### 4.5 Redis usage
 
@@ -334,7 +334,12 @@ Each verified event is handled in one transaction that first inserts the event i
 
 **When the money cannot be applied** (the order already expired, was cancelled, or was paid by another attempt, or reconciliation failed), the order is left as it is and the attempt is marked `REFUND_PENDING` with the reason. After the transaction commits, the API asks Stripe for a refund, keyed by the payment id so it is never refunded twice, and marks the attempt `REFUNDED`. If Stripe is unreachable the attempt stays `REFUND_PENDING` and a run every minute retries it. A late payment is therefore never fulfilled from stock that may already have been sold to someone else.
 
-**Background workers across several API instances.** Each API process runs the order-expiry sweep and the refund retry every minute. Running them in several instances at once is safe, though redundant:
+**Background workers across several API instances.** Each API process schedules the order-expiry sweep and the refund retry every minute, and the session sweep every hour, through `lib/scheduled-job.ts`:
+
+- A run is skipped while the previous run in the same process is still going. During a Stripe outage a refund run can outlast its interval, and runs would otherwise pile up.
+- Instances claim each run in Redis (`SET NX` with an expiry just under the interval, never released early), so normally one instance does the work. If Redis is unreachable, every instance runs the job.
+
+The scheduling only avoids wasted work. The jobs remain correct when several runs overlap:
 
 - Expiry is a conditional status change, so exactly one instance releases an order's stock.
 - Every refund call for a payment carries the same idempotency key, so concurrent attempts produce one Stripe refund, and the status moves from `REFUND_PENDING` to `REFUNDED` once. Stripe keeps idempotency keys for 24 hours; after that, a refund that already happened is reported as `charge_already_refunded`, and the gateway records the existing refund instead of failing.
@@ -401,7 +406,7 @@ Every route under `/api/v1/admin` passes `requireAuth` and `requireRole('ADMIN')
 - `CANCELLED`, `EXPIRED`, `DELIVERED`, and `REFUNDED` are final.
 - The request names the status the administrator saw (`from`) as well as the target. The change is a conditional update on that status, so if the webhook, expiry, the customer, or another administrator changed the order meanwhile, nothing happens and the API answers `ORDER_STATUS_CHANGED`. Cancellation reuses the customer's cancellation path, so stock is released exactly once even when both cancel at the same moment.
 
-**Stock adjustments.** Administrators add or remove physical stock with a relative change (`delta`), never by setting reserved units. The change is one conditional statement, `stock_quantity = stock_quantity + delta WHERE stock_quantity + delta >= reserved_quantity`, so concurrent adjustments and checkouts compose correctly and stock can never drop below what unpaid orders hold. A refused change explains whether it would go below zero or below the reserved units. Adjustments are not recorded in a history table.
+**Stock adjustments.** Administrators add or remove physical stock with a relative change (`delta`), never by setting reserved units. The change is one conditional statement, `stock_quantity = stock_quantity + delta WHERE stock_quantity + delta >= reserved_quantity`, so concurrent adjustments and checkouts compose correctly and stock can never drop below what unpaid orders hold. A refused change explains whether it would go below zero or below the reserved units. Each applied adjustment is recorded in `stock_adjustments` (administrator, change, resulting stock, optional reason, time) in the same transaction, and the product page shows the 20 most recent. Refused adjustments leave no record.
 
 **Catalog changes.** Product edits accept only listed fields (name, slug, description, price, category, status); stock and reserved quantities cannot be set through them. Past orders are unaffected because order items keep their own name and price. Archiving hides a product from the store and flags it in carts; reservations held by orders already placed are kept. A category can be deleted only when it has no products at all, including archived ones.
 
@@ -431,30 +436,44 @@ Every route under `/api/v1/admin` passes `requireAuth` and `requireRole('ADMIN')
 
 ## 7. Frontend
 
-- Server Components by default; catalog and product pages fetch on the server. Client Components are used for interactive parts (cart controls, forms, Stripe Elements).
+- Server Components by default; catalog and product pages fetch on the server. Client Components are used for interactive parts (cart controls and forms). Payment happens on Stripe's hosted Checkout page, so card details never reach CartForge.
 - Route groups separate the storefront, auth pages, account pages, and admin area, each with its own layout where needed.
 - `lib/catalog-api.ts` is the catalog API client. Server Components call the API directly at `API_URL`, server to server, and validate each response with Zod. Requests made from the browser use the same-origin `/api` proxy.
 - Cart state lives only on the server. Cart buttons call the API and then refresh the server-rendered page and header count; nothing about the cart is kept in `localStorage` or a client store.
 - Listing state (search, price range, sort, page) lives in the URL. Pages parse it leniently, so a malformed query string falls back to defaults instead of an error page.
 - Protected routes are checked on the server; the API remains the authority on authorization.
+- Every page is sent with security headers (`lib/security-headers.ts`): a policy that forbids framing and restricts form targets, the base URL and plugins; `nosniff`; a referrer policy; and HSTS in production. Scripts are not restricted by the policy, which would need per-request nonces.
 - No global state library is planned. Server state comes from the API; local state stays in components. This is revisited only if a concrete need appears.
 
 ## 8. Testing
 
-| Level       | Tool               | Scope                                                                                                           |
-| ----------- | ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| Unit        | Vitest             | Pure logic: totals, status transitions, schema validation                                                       |
-| Integration | Vitest + Supertest | HTTP endpoints against a real PostgreSQL test database, including auth, authorization, and concurrency on stock |
-| End-to-end  | Playwright         | Critical journeys: register, browse, add to cart, check out with a Stripe test card, see the order              |
+| Level       | Tool                | Scope                                                                                                                     |
+| ----------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Unit        | Vitest              | Pure logic: totals, status transitions, schema validation                                                                 |
+| Integration | Vitest + Supertest  | HTTP endpoints against a real PostgreSQL test database, including auth, authorization, and concurrency on stock           |
+| End-to-end  | Playwright (`e2e/`) | Customer and administrator journeys in a real browser against production builds, paying through the development simulator |
 
-Integration tests do not mock Prisma. They run against a separate test database and cannot connect to the development database; see [database.md](database.md). Stripe is exercised with test-mode keys or signed fixture webhooks.
+Integration tests do not mock Prisma. They run against a separate test database and cannot connect to the development database; see [database.md](database.md). Stripe's API is replaced with mocks, and webhooks are signed fixtures verified by the real code. Nothing has been run against Stripe's own test environment yet ([stripe-test-mode.md](stripe-test-mode.md)).
+
+**End-to-end isolation:**
+
+- **Database:** the suite runs on its own database (`cartforge_e2e_test`), migrated, emptied and seeded before each run.
+- **Redis:** database indexes 2 and 3, never development data.
+- **Servers:** the API on port 4200 and the web app on 3200, so it can run beside `pnpm dev`.
+- **Data:** each test registers its own accounts.
+- **Payments:** always the labelled development simulator; the Stripe keys are forced empty.
 
 ## 9. Local development and CI
 
 - `docker-compose.yml` runs PostgreSQL and Redis for local development. The apps run on the host with hot reload.
 - Configuration lives in two git-ignored files, each with a committed example: the root `.env` (read by Docker Compose, the API, and the Prisma CLI, which must agree on the database credentials) and `apps/web/.env.local` (the web app's `API_URL`).
-- GitHub Actions runs on every push and pull request: install, lint, typecheck, unit and integration tests (with PostgreSQL and Redis service containers), and build. Playwright runs in CI once the end-to-end milestone lands.
-- Production Dockerfiles for `web` and `api` are added in the final milestone.
+- GitHub Actions runs on every push and pull request:
+  - install, lint and typecheck;
+  - migration drift check;
+  - unit and integration tests, with PostgreSQL and Redis service containers;
+  - build;
+  - then a second job runs the Playwright suite.
+- Production Dockerfiles for `web` and `api` (with a `migrate` target), and a Compose `full` profile that runs the whole stack from them. See [deployment.md](deployment.md).
 
 ## 10. Versions
 

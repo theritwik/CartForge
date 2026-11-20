@@ -126,6 +126,7 @@ describe('access', () => {
     ['post', '/products'],
     ['get', `/products/${UNKNOWN_ID}`],
     ['patch', `/products/${UNKNOWN_ID}`],
+    ['get', `/products/${UNKNOWN_ID}/stock-adjustments`],
     ['post', `/products/${UNKNOWN_ID}/stock-adjustments`],
     ['get', '/categories'],
     ['post', '/categories'],
@@ -210,6 +211,25 @@ describe('products', () => {
         category: { id: kitchen.id, name: 'Kitchen' },
       },
     });
+  });
+
+  it('accepts the longest description the form allows, in any script', async () => {
+    // 5,000 characters of Devanagari is about 15 KB of UTF-8.
+    const description = 'क'.repeat(5000);
+
+    const response = await asAdmin('post', '/products').send(newProduct({ description }));
+
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({ data: { description } });
+  });
+
+  it('still rejects request bodies far larger than any valid product', async () => {
+    const response = await asAdmin('post', '/products').send(
+      newProduct({ description: 'x'.repeat(100_000) }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(response.body).toMatchObject({ error: { code: 'PAYLOAD_TOO_LARGE' } });
   });
 
   it('creates a draft with no stock by default', async () => {
@@ -596,6 +616,73 @@ describe('stock adjustments', () => {
     expect(stock.reservedQuantity).toBe(
       2 * (await prisma.order.count({ where: { status: 'PENDING_PAYMENT' } })),
     );
+  });
+
+  describe('history', () => {
+    const history = (productId = kettle.id) =>
+      asAdmin('get', `/products/${productId}/stock-adjustments`);
+
+    it('records who changed the stock, by how much, why, and the stock afterwards', async () => {
+      await asAdmin('post', `/products/${kettle.id}/stock-adjustments`).send({
+        delta: 15,
+        reason: '  Delivery from supplier  ',
+      });
+      await asAdmin('post', `/products/${kettle.id}/stock-adjustments`).send({ delta: -3 });
+
+      const response = await history();
+
+      expect(response.status).toBe(200);
+      expect((response.body as { data: unknown[] }).data).toEqual([
+        expect.objectContaining({ delta: -3, stockAfter: 22, reason: null }),
+        expect.objectContaining({
+          delta: 15,
+          stockAfter: 25,
+          reason: 'Delivery from supplier',
+          admin: { id: admin.id, name: 'Asha Rao', email: admin.email },
+        }),
+      ]);
+      expect(JSON.stringify(response.body)).not.toContain('passwordHash');
+    });
+
+    it('records nothing for a refused or invalid adjustment', async () => {
+      await asAdmin('post', `/products/${kettle.id}/stock-adjustments`).send({ delta: -11 });
+      const tooLong = await asAdmin('post', `/products/${kettle.id}/stock-adjustments`).send({
+        delta: 1,
+        reason: 'x'.repeat(201),
+      });
+
+      expect(tooLong.status).toBe(400);
+      expect(((await history()).body as { data: unknown[] }).data).toEqual([]);
+      expect(await prisma.stockAdjustment.count()).toBe(0);
+    });
+
+    it('records each concurrent adjustment once, with a consistent stock after each', async () => {
+      await Promise.all(
+        Array.from({ length: 10 }, () =>
+          asAdmin('post', `/products/${kettle.id}/stock-adjustments`).send({ delta: 2 }),
+        ),
+      );
+
+      const rows = await prisma.stockAdjustment.findMany({ where: { productId: kettle.id } });
+      expect(rows).toHaveLength(10);
+      // The changes were applied one after another: 12, 14, ... 30.
+      expect(rows.map((row) => row.stockAfter).sort((a, b) => a - b)).toEqual(
+        Array.from({ length: 10 }, (_, index) => 12 + index * 2),
+      );
+      expect(await stockOf(kettle.id)).toEqual({ stockQuantity: 30, reservedQuantity: 0 });
+    });
+
+    it('cannot be altered once written', async () => {
+      await asAdmin('post', `/products/${kettle.id}/stock-adjustments`).send({ delta: 1 });
+
+      await expect(prisma.$executeRaw`UPDATE stock_adjustments SET delta = 100`).rejects.toThrow(
+        /immutable/,
+      );
+    });
+
+    it('returns 404 for a product that does not exist', async () => {
+      expect((await history(UNKNOWN_ID)).status).toBe(404);
+    });
   });
 });
 

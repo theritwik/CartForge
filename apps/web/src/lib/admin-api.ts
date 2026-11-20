@@ -182,6 +182,24 @@ export async function getAdminProduct(productId: string) {
   return (await loadAdmin(path, z.object({ data: adminProductSchema }), `/admin${path}/edit`)).data;
 }
 
+const stockAdjustmentSchema = z.object({
+  id: z.string(),
+  delta: z.number().int(),
+  stockAfter: z.number().int(),
+  reason: z.string().nullable(),
+  createdAt: z.coerce.date(),
+  admin: z.object({ name: z.string(), email: z.string() }),
+});
+
+export type StockAdjustment = z.infer<typeof stockAdjustmentSchema>;
+
+/** The most recent stock adjustments of one product, newest first. */
+export async function getStockAdjustments(productId: string) {
+  const path = `/products/${encodeURIComponent(productId)}`;
+  const schema = z.object({ data: z.array(stockAdjustmentSchema) });
+  return (await loadAdmin(`${path}/stock-adjustments`, schema, `/admin${path}/edit`)).data;
+}
+
 export async function getAdminCategories() {
   const schema = z.object({ data: z.array(adminCategorySchema) });
   return (await loadAdmin('/categories', schema, '/admin/categories')).data;

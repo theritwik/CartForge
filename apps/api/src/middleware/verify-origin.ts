@@ -4,6 +4,10 @@ import { AppError } from '../lib/errors.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+export function isSafeMethod(method: string): boolean {
+  return SAFE_METHODS.has(method);
+}
+
 function originOfReferer(referer: string | undefined): string | undefined {
   return referer && URL.canParse(referer) ? new URL(referer).origin : undefined;
 }
@@ -14,7 +18,7 @@ function originOfReferer(referer: string | undefined): string | undefined {
  * a cross-site HTML form cannot send.
  */
 export const verifyRequestOrigin: RequestHandler = (req, _res, next) => {
-  if (SAFE_METHODS.has(req.method)) {
+  if (isSafeMethod(req.method)) {
     next();
     return;
   }

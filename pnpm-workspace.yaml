@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - e2e
 
 onlyBuiltDependencies:
   - argon2
@@ -8,3 +9,9 @@ onlyBuiltDependencies:
   - esbuild
   - prisma
   - sharp
+
+overrides:
+  # GHSA-7589-6fvf-x4pw (ReDoS in effect's Schema.TemplateLiteral). Prisma 7.10.1 pins
+  # effect 3.20.0 for its config loader; 3.22.4 is the patched release in the same minor.
+  # Remove once a Prisma release depends on a patched version.
+  '@prisma/config>effect': 3.22.4

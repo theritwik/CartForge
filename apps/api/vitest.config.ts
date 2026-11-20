@@ -15,6 +15,8 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
+      // As locally: no proxy in front, so X-Forwarded-For is never trusted.
+      TRUST_PROXY_HOPS: '0',
       // Placeholders, not credentials: tests replace every Stripe network call.
       STRIPE_SECRET_KEY: 'sk_test_placeholder_for_automated_tests',
       STRIPE_WEBHOOK_SECRET: 'whsec_placeholder_for_automated_tests',

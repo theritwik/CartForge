@@ -1,5 +1,8 @@
 pnpm-lock.yaml
 dist/
 .next/
+.next-e2e/
+test-results/
+playwright-report/
 next-env.d.ts
 packages/db/src/generated/

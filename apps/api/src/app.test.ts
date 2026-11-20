@@ -83,4 +83,11 @@ describe('GET /health with a dependency down', () => {
       checks: { database: 'up', redis: 'down', cache: 'down' },
     });
   });
+
+  it('still reports the process as live', async () => {
+    const response = await request(app).get('/health/live');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: 'ok' });
+  });
 });

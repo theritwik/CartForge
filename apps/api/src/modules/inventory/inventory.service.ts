@@ -97,6 +97,32 @@ export async function commitStock(tx: Prisma.TransactionClient, lines: StockLine
   }
 }
 
+const STOCK_HISTORY_SIZE = 20;
+
+/** The most recent adjustments of one product's stock, newest first. */
+export async function listStockAdjustments(productId: string) {
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true },
+  });
+  if (!product) {
+    throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Product not found.');
+  }
+  return prisma.stockAdjustment.findMany({
+    where: { productId },
+    select: {
+      id: true,
+      delta: true,
+      stockAfter: true,
+      reason: true,
+      createdAt: true,
+      admin: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: STOCK_HISTORY_SIZE,
+  });
+}
+
 /** The most physical stock one product may record. */
 const MAX_STOCK_QUANTITY = 1_000_000;
 
@@ -104,19 +130,35 @@ const MAX_STOCK_QUANTITY = 1_000_000;
  * Adds or removes physical stock, for an administrator's adjustment. A single
  * conditional statement applies the change, so concurrent adjustments and
  * checkouts compose correctly: stock can never drop below the units reserved
- * by unpaid orders, nor below zero.
+ * by unpaid orders, nor below zero. The adjustment is recorded, with who made
+ * it and the resulting stock, in the same transaction.
  */
-export async function adjustProductStock(productId: string, delta: number): Promise<void> {
+export async function adjustProductStock(adjustment: {
+  productId: string;
+  adminId: string;
+  delta: number;
+  reason?: string;
+}): Promise<void> {
+  const { productId, delta } = adjustment;
   await prisma.$transaction(async (tx) => {
-    const [updated] = await tx.$queryRaw<{ id: string }[]>`
+    const [updated] = await tx.$queryRaw<{ stock_quantity: number }[]>`
       UPDATE products
       SET stock_quantity = stock_quantity + ${delta}, updated_at = now()
       WHERE id = ${productId}::uuid
         AND stock_quantity + ${delta} >= reserved_quantity
         AND stock_quantity + ${delta} <= ${MAX_STOCK_QUANTITY}
-      RETURNING id
+      RETURNING stock_quantity
     `;
     if (updated) {
+      await tx.stockAdjustment.create({
+        data: {
+          productId,
+          adminId: adjustment.adminId,
+          delta,
+          stockAfter: updated.stock_quantity,
+          reason: adjustment.reason,
+        },
+      });
       return;
     }
 

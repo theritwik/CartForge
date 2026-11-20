@@ -229,6 +229,21 @@ describe('POST /api/v1/auth/login', () => {
       expect((await attempt(user.password)).status).toBe(200);
     }
   });
+
+  it('cannot escape the per-address limit by sending a different X-Forwarded-For each time', async () => {
+    // The web app's proxy forwards this header from the browser unchanged, so it is
+    // only trusted when a proxy in front of the web app sets it (TRUST_PROXY_HOPS).
+    const attempt = (index: number) =>
+      post('/api/v1/auth/login')
+        .set('X-Forwarded-For', `198.51.100.${index}`)
+        .send({ email: `someone${index}@example.com`, password: 'wrong' });
+
+    for (let index = 0; index < 30; index += 1) {
+      expect((await attempt(index)).status).toBe(401);
+    }
+
+    expect((await attempt(30)).status).toBe(429);
+  });
 });
 
 describe('rate limiting while Redis is unavailable', () => {
