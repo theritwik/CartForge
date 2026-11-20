@@ -34,7 +34,7 @@ Invalid parameters return `400` with code `VALIDATION_ERROR` and the list of inv
 
 ### Caching
 
-The three catalog endpoints are cached in Redis for 2 minutes (lists) or 5 minutes (detail and categories). Prices, publication status, and stock are read from PostgreSQL on every request, so they are never stale. Edits made through the admin API appear immediately. Changes made directly in the database, including `pnpm db:seed`, can take up to 5 minutes to change names, descriptions, or list membership. The cache runs on its own Redis instance (`CACHE_REDIS_URL`), so it can evict entries under memory pressure without touching rate-limit counters. If it is unavailable, the catalog is served from PostgreSQL. Design and measurements are in [docs/performance.md](docs/performance.md).
+The three catalog endpoints are cached in Redis for 2 minutes (lists) or 5 minutes (detail and categories). Prices, publication status, and stock are read from PostgreSQL on every request, so they are never stale. Edits made through the admin API appear immediately. Changes made directly in the database, including `pnpm db:seed`, can take up to 5 minutes to change names, descriptions, or list membership. The cache runs on its own Redis instance (`CACHE_REDIS_URL`), so it can evict entries under memory pressure without touching rate-limit counters. If it is unavailable, the catalog is served from PostgreSQL. Design and measurements are in [docs/performance.md](performance.md).
 
 ## Accounts and authentication
 
@@ -151,7 +151,7 @@ It returns `201` with the order, or `200` with the same order if the key was alr
 | `ORDER_NOT_CANCELLABLE` | 409    | The order is no longer awaiting payment                                |
 | `ORDER_NOT_FOUND`       | 404    | No such order belongs to the caller                                    |
 
-Order statuses are `PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `EXPIRED`, and `REFUNDED`. See [docs/architecture.md](docs/architecture.md) for the lifecycle and the concurrency design.
+Order statuses are `PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `EXPIRED`, and `REFUNDED`. See [docs/architecture.md](architecture.md) for the lifecycle and the concurrency design.
 
 ## Payments
 

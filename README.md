@@ -11,11 +11,11 @@ Prices are in Indian rupees and stored as integer paise.
 
 **Status:**
 
-- **Implemented:** all ten milestones in [docs/roadmap.md](docs/roadmap.md).
-- **Testing:** every feature below has automated tests, and they pass locally.
-- **CI:** GitHub Actions has not yet run the latest work.
-- **Stripe:** payments have been tested with a mocked Stripe API and a labelled local simulator, but **not yet against real Stripe test mode** ([why, and how to do it](docs/stripe-test-mode.md)).
-- **Deployment:** none. The application runs from production containers locally, and [docs/deployment.md](docs/deployment.md) compares hosting options.
+- **Development:** all ten milestones in [docs/roadmap.md](docs/roadmap.md) are done.
+- **Testing:** 560 unit and integration tests and 21 Playwright end-to-end tests. All pass locally and in GitHub Actions: both CI jobs, `verify` and `e2e`, passed on the commit merged in [theritwik/CartForge#11](https://github.com/theritwik/CartForge/pull/11).
+- **Release verification, still pending:**
+  - **Stripe:** payments have been tested with a mocked Stripe API and a labelled local simulator, but **not yet against real Stripe test mode** ([why, and how to do it](docs/stripe-test-mode.md)).
+  - **Deployment:** none. The application runs from production containers locally, and [docs/deployment.md](docs/deployment.md) compares hosting options.
 
 | Storefront                                       | Product                                                  | Checkout                                                  |
 | ------------------------------------------------ | -------------------------------------------------------- | --------------------------------------------------------- |
