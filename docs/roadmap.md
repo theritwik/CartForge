@@ -2,19 +2,21 @@
 
 Milestones are built in order, one at a time. A milestone is complete only when its exit criteria pass. Status values: `planned`, `in progress`, `done`.
 
-| #   | Milestone                                                              | Status      |
-| --- | ---------------------------------------------------------------------- | ----------- |
-| 0   | Planning and architecture                                              | done        |
-| 1   | Monorepo foundation                                                    | done        |
-| 2   | Database foundation                                                    | done        |
-| 3   | Product catalog                                                        | done        |
-| 4   | Authentication and users                                               | done        |
-| 5   | Cart and password change                                               | done        |
-| 6   | Order management and inventory                                         | done        |
-| 7   | Payments                                                               | done        |
-| 8   | Admin dashboard                                                        | done        |
-| 9   | Caching and database performance                                       | done        |
-| 10  | API hardening, end-to-end tests, containers, and release documentation | in progress |
+All ten development milestones are done. The [release verification](#release-verification) steps below are still pending.
+
+| #   | Milestone                                                              | Status |
+| --- | ---------------------------------------------------------------------- | ------ |
+| 0   | Planning and architecture                                              | done   |
+| 1   | Monorepo foundation                                                    | done   |
+| 2   | Database foundation                                                    | done   |
+| 3   | Product catalog                                                        | done   |
+| 4   | Authentication and users                                               | done   |
+| 5   | Cart and password change                                               | done   |
+| 6   | Order management and inventory                                         | done   |
+| 7   | Payments                                                               | done   |
+| 8   | Admin dashboard                                                        | done   |
+| 9   | Caching and database performance                                       | done   |
+| 10  | API hardening, end-to-end tests, containers, and release documentation | done   |
 
 ## M0 - Planning and architecture
 
@@ -153,13 +155,29 @@ Delivered:
 
 Exit criteria: security review checklist is recorded in `docs/`; full stack starts from containers; all test levels pass in CI; documentation matches what is implemented.
 
-Status: everything above passes locally. The milestone is done once CI passes on GitHub, which has not run for this work yet.
+Status: done. All four exit criteria are met:
 
-Not done:
+- The security review checklist is in `docs/security-review.md`.
+- The full stack starts from containers.
+- All test levels pass in CI: the `verify` and `e2e` jobs passed on commit `a721391`, which was merged into `main` in [theritwik/CartForge#11](https://github.com/theritwik/CartForge/pull/11).
+- The documentation matches what is implemented.
+
+Locally, 560 unit and integration tests and 21 Playwright tests pass.
+
+Not done (outside the exit criteria; see [release verification](#release-verification)):
 
 - Verification against real Stripe test mode: no key, CLI, or network access to Stripe was available. See `docs/stripe-test-mode.md`.
 - Deployment to a hosting provider: hosting options are presented in `docs/deployment.md` for a decision first.
 - A delivery pipeline that builds, pushes, and deploys images.
+
+## Release verification
+
+These steps verify the finished application in its intended environment. They are not development milestones, and neither has been done.
+
+| Step                  | Status  | What it needs                                                                                                                                                                                                    |
+| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real Stripe test mode | pending | A test-mode key and the Stripe CLI on a machine that can reach Stripe; the ten-step checklist in [stripe-test-mode.md](stripe-test-mode.md). Until then, payments are verified only with mocks and the simulator |
+| Production deployment | pending | A hosting choice from [deployment.md](deployment.md), provisioned PostgreSQL and two Redis instances, secrets, a Stripe test-mode webhook endpoint, and the deployment checklist                                 |
 
 ## Backlog
 
